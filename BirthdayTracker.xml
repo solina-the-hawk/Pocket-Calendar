@@ -1,0 +1,514 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE MudletPackage>
+<MudletPackage version="1.001">
+	<TriggerPackage>
+		<TriggerGroup isActive="yes" isFolder="yes" isTempTrigger="no" isMultiline="no" isPerlSlashGOption="no" isColorizerTrigger="no" isFilterTrigger="no" isSoundTrigger="no" isColorTrigger="no" isColorTriggerFg="no" isColorTriggerBg="no">
+			<name>Birthday Tracker</name>
+			<script></script>
+			<triggerType>0</triggerType>
+			<conditonLineDelta>0</conditonLineDelta>
+			<mStayOpen>0</mStayOpen>
+			<mCommand></mCommand>
+			<packageName></packageName>
+			<mFgColor>#ff0000</mFgColor>
+			<mBgColor>#ffff00</mBgColor>
+			<mSoundFile></mSoundFile>
+			<colorTriggerFgColor>#000000</colorTriggerFgColor>
+			<colorTriggerBgColor>#000000</colorTriggerBgColor>
+			<regexCodeList />
+			<regexCodePropertyList />
+			<Trigger isActive="yes" isFolder="no" isTempTrigger="no" isMultiline="no" isPerlSlashGOption="no" isColorizerTrigger="no" isFilterTrigger="no" isSoundTrigger="no" isColorTrigger="no" isColorTriggerFg="no" isColorTriggerBg="no">
+				<name>Birthday Capture</name>
+				<script>-- This actively checks for a birthday.
+if BirthdayTracker.currentLookup then
+    local name = BirthdayTracker.currentLookup 
+
+    -- This captures our day and year as numeric values.
+    local day = tonumber(matches[2])
+    local month = matches[3]
+    local year = tonumber(matches[4])
+
+    -- Stores date into our table for reference.
+    BirthdayTracker.data[name] = {
+        day = day,
+        month = month,
+        year = year
+    }
+
+    -- Give visual feedback on capture. Commented out but left for debugging.
+    --cecho(string.format("\n&lt;green&gt;[BIRTHDAY]: Captured %s's birthday: %s %d, %d.&lt;reset&gt;", name, month, day, year))
+
+    -- Save the data to so we don't lose it on restart.
+    BirthdayTracker:save()
+
+    -- Reset the lookup variable so we don't accidentally capture text from other sources
+    BirthdayTracker.currentLookup = nil
+end</script>
+				<triggerType>0</triggerType>
+				<conditonLineDelta>0</conditonLineDelta>
+				<mStayOpen>0</mStayOpen>
+				<mCommand></mCommand>
+				<packageName></packageName>
+				<mFgColor>#ff0000</mFgColor>
+				<mBgColor>#ffff00</mBgColor>
+				<mSoundFile></mSoundFile>
+				<colorTriggerFgColor>#000000</colorTriggerFgColor>
+				<colorTriggerBgColor>#000000</colorTriggerBgColor>
+				<regexCodeList>
+					<string>born on the (\d+)(?:st|nd|rd|th) of (\w+), (\d+)</string>
+				</regexCodeList>
+				<regexCodePropertyList>
+					<integer>1</integer>
+				</regexCodePropertyList>
+			</Trigger>
+			<Trigger isActive="yes" isFolder="no" isTempTrigger="no" isMultiline="no" isPerlSlashGOption="no" isColorizerTrigger="no" isFilterTrigger="no" isSoundTrigger="no" isColorTrigger="no" isColorTriggerFg="no" isColorTriggerBg="no">
+				<name>Birthday Date Capture</name>
+				<script>-- Forces an udpate of the tracker.
+BirthdayTracker.currentDate.day = tonumber(matches[2])
+BirthdayTracker.currentDate.month = matches[3]
+BirthdayTracker.currentDate.year = tonumber(matches[4])
+
+BirthdayTracker:save()
+
+cecho("\n&lt;green&gt;Date recorded.&lt;reset&gt;")
+
+BirthdayTracker:checkUpcoming(true)</script>
+				<triggerType>0</triggerType>
+				<conditonLineDelta>0</conditonLineDelta>
+				<mStayOpen>0</mStayOpen>
+				<mCommand></mCommand>
+				<packageName></packageName>
+				<mFgColor>#ff0000</mFgColor>
+				<mBgColor>#ffff00</mBgColor>
+				<mSoundFile></mSoundFile>
+				<colorTriggerFgColor>#000000</colorTriggerFgColor>
+				<colorTriggerBgColor>#000000</colorTriggerBgColor>
+				<regexCodeList>
+					<string>^Today is the (\d+)(?:st|nd|rd|th) of (\w+), (\d+)</string>
+				</regexCodeList>
+				<regexCodePropertyList>
+					<integer>1</integer>
+				</regexCodePropertyList>
+			</Trigger>
+			<Trigger isActive="yes" isFolder="no" isTempTrigger="no" isMultiline="no" isPerlSlashGOption="no" isColorizerTrigger="no" isFilterTrigger="no" isSoundTrigger="no" isColorTrigger="no" isColorTriggerFg="no" isColorTriggerBg="no">
+				<name>Birthday Midnight Update</name>
+				<script>-- Captures the new date from midnight rollover message.
+local day = tonumber(matches[2])
+local month = matches[3]
+local year = tonumber(matches[4])
+
+-- Updates our internal tracker.
+BirthdayTracker.currentDate.day = day
+BirthdayTracker.currentDate.month = month
+BirthdayTracker.currentDate.year = year
+
+-- Runs the birthday check! We pass 'false' so it is silent unless a birthday is coming up soon.
+BirthdayTracker:checkUpcoming(false)
+
+-- Save the new date.
+BirthdayTracker:save()</script>
+				<triggerType>0</triggerType>
+				<conditonLineDelta>0</conditonLineDelta>
+				<mStayOpen>0</mStayOpen>
+				<mCommand></mCommand>
+				<packageName></packageName>
+				<mFgColor>#ff0000</mFgColor>
+				<mBgColor>#ffff00</mBgColor>
+				<mSoundFile></mSoundFile>
+				<colorTriggerFgColor>#000000</colorTriggerFgColor>
+				<colorTriggerBgColor>#000000</colorTriggerBgColor>
+				<regexCodeList>
+					<string>^It is now the (\d+)(?:st|nd|rd|th) of (\w+), (\d+)</string>
+				</regexCodeList>
+				<regexCodePropertyList>
+					<integer>1</integer>
+				</regexCodePropertyList>
+			</Trigger>
+			<Trigger isActive="yes" isFolder="no" isTempTrigger="no" isMultiline="no" isPerlSlashGOption="no" isColorizerTrigger="no" isFilterTrigger="no" isSoundTrigger="no" isColorTrigger="no" isColorTriggerFg="no" isColorTriggerBg="no">
+				<name>Birthday Hidden Capture</name>
+				<script>if BirthdayTracker.currentLookup then
+    local name = BirthdayTracker.currentLookup
+    cecho(string.format("\n&lt;yellow&gt;%s's age is hidden. If you want to track it, add it manually.&lt;reset&gt;", name))
+    cecho("\n&lt;white&gt;If you know it, type: &lt;yellow&gt;bday add %s &lt;day&gt; &lt;month&gt;&lt;reset&gt;", name)
+
+    -- Reset lookup so we don't accidentally capture something else
+    BirthdayTracker.currentLookup = nil
+end</script>
+				<triggerType>0</triggerType>
+				<conditonLineDelta>0</conditonLineDelta>
+				<mStayOpen>0</mStayOpen>
+				<mCommand></mCommand>
+				<packageName></packageName>
+				<mFgColor>#ff0000</mFgColor>
+				<mBgColor>#ffff00</mBgColor>
+				<mSoundFile></mSoundFile>
+				<colorTriggerFgColor>#000000</colorTriggerFgColor>
+				<colorTriggerBgColor>#000000</colorTriggerBgColor>
+				<regexCodeList>
+					<string>^(?:His|Her|Faes) date of birth is hidden by the sand of Aeon\.</string>
+				</regexCodeList>
+				<regexCodePropertyList>
+					<integer>1</integer>
+				</regexCodePropertyList>
+			</Trigger>
+		</TriggerGroup>
+	</TriggerPackage>
+	<TimerPackage />
+	<AliasPackage>
+		<AliasGroup isActive="yes" isFolder="yes">
+			<name>Birthday Tracker</name>
+			<script></script>
+			<command></command>
+			<packageName></packageName>
+			<regex></regex>
+			<Alias isActive="yes" isFolder="no">
+				<name>Birthday Honours</name>
+				<script>-- Captures the name entered and format it.
+BirthdayTracker.currentLookup = matches[2]:title()
+
+-- Sends the command to the game so we still see the honours.
+-- matches[1] contains the whole command you typed (e.g., "honours Solina")
+send(matches[1])</script>
+				<command></command>
+				<packageName></packageName>
+				<regex>^(?i)honours (\w+)$</regex>
+			</Alias>
+			<Alias isActive="yes" isFolder="no">
+				<name>Birthday Monitor</name>
+				<script>BirthdayTracker:monitor(matches[2])</script>
+				<command></command>
+				<packageName></packageName>
+				<regex>^(?i)bday\s+monitor\s+(\S+)$</regex>
+			</Alias>
+			<Alias isActive="yes" isFolder="no">
+				<name>Birthday Unmonitor</name>
+				<script>BirthdayTracker:unmonitor(matches[2])</script>
+				<command></command>
+				<packageName></packageName>
+				<regex>^bday unmonitor (\w+)$</regex>
+			</Alias>
+			<Alias isActive="yes" isFolder="no">
+				<name>Birthday List</name>
+				<script>BirthdayTracker:checkUpcoming(true)</script>
+				<command></command>
+				<packageName></packageName>
+				<regex>^bday list$</regex>
+			</Alias>
+			<Alias isActive="yes" isFolder="no">
+				<name>Birthday Help</name>
+				<script>BirthdayTracker:help()</script>
+				<command></command>
+				<packageName></packageName>
+				<regex>^bday(?: help)?$</regex>
+			</Alias>
+			<Alias isActive="yes" isFolder="no">
+				<name>Birthday Internal Date</name>
+				<script>--This checks the internal date we have saved as the current one. It's mostly for debugging, but I'm leaving it in anyway.
+local d = BirthdayTracker.currentDate
+cecho(string.format("\n&lt;green&gt;[BIRTHDAY]: Tracker Internal Date: &lt;white&gt;%s %d, %d&lt;reset&gt;\n", d.month, d.day, d.year))
+cecho("&lt;grey&gt;(If this is incorrect, type 'DATE' to force a game update)&lt;reset&gt;\n")</script>
+				<command></command>
+				<packageName></packageName>
+				<regex>^bday date$</regex>
+			</Alias>
+			<Alias isActive="yes" isFolder="no">
+				<name>Birthday Debug</name>
+				<script>cecho("\n&lt;red&gt;--- BIRTHDAY TRACKER DEBUG ---&lt;reset&gt;\n")
+
+-- 1. Display the date currently stored in memory
+local d = BirthdayTracker.currentDate
+if d.year == 0 then
+    cecho("Internal Date: &lt;yellow&gt;Not initialized yet.&lt;reset&gt;\n")
+else
+    cecho(string.format("Internal Date: &lt;green&gt;%s %d, %d&lt;reset&gt;\n", d.month, d.day, d.year))
+end
+
+-- 3. Instructions
+cecho("\n&lt;grey&gt;This tracker updates when midnight occurs or you enter the &lt;white&gt;DATE&lt;grey&gt; command.&lt;reset&gt;\n")
+cecho("&lt;grey&gt;Type &lt;white&gt;DATE&lt;grey&gt; manually to force an immediate update.&lt;reset&gt;\n")
+cecho("&lt;red&gt;------------------------------&lt;reset&gt;\n")</script>
+				<command></command>
+				<packageName></packageName>
+				<regex>^bday debug$</regex>
+			</Alias>
+			<Alias isActive="yes" isFolder="no">
+				<name>Birthday Manual Add</name>
+				<script>BirthdayTracker:manualAdd(matches[2], matches[3], matches[4])</script>
+				<command></command>
+				<packageName></packageName>
+				<regex>^(?i)bday\s+add\s+(\S+)\s+(\d+)\s+(\w+)$</regex>
+			</Alias>
+		</AliasGroup>
+	</AliasPackage>
+	<ActionPackage />
+	<ScriptPackage>
+		<ScriptGroup isActive="yes" isFolder="yes">
+			<name>Birthday Tracker</name>
+			<packageName></packageName>
+			<script></script>
+			<eventHandlerList />
+			<Script isActive="yes" isFolder="no">
+				<name>BirthdayTracker</name>
+				<packageName></packageName>
+				<script>BirthdayTracker = BirthdayTracker or {}
+BirthdayTracker.data = BirthdayTracker.data or {}
+BirthdayTracker.monitored = BirthdayTracker.monitored or {}
+BirthdayTracker.currentDate = BirthdayTracker.currentDate or { day = 1, month = "Sarapin", year = 0 }
+
+BirthdayTracker.monthMap = {
+    ["Sarapin"] = 1, ["Daedalan"] = 2, ["Aeguary"] = 3,
+    ["Miraman"] = 4, ["Scarlatan"] = 5, ["Ero"] = 6,
+    ["Valnuary"] = 7, ["Lupar"] = 8, ["Phaestian"] = 9,
+    ["Chronos"] = 10, ["Glacian"] = 11, ["Mayan"] = 12
+}
+
+-- Converts Date to Absolute Day
+function BirthdayTracker:toAbsDay(day, monthName)
+    local monthNum = self.monthMap[monthName] or 1
+    return ((monthNum - 1) * 25) + day
+end
+
+-- Add a player to the watchlist
+function BirthdayTracker:monitor(name)
+    name = name:title()
+    if not table.contains(self.monitored, name) then
+        table.insert(self.monitored, name)
+        self:save()
+        cecho(string.format("\n&lt;green&gt;[BIRTHDAY]: Added %s to the watchlist.&lt;reset&gt;", name))
+    else
+        cecho(string.format("\n&lt;yellow&gt;[BIRTHDAY]: %s is already on the watchlist.&lt;reset&gt;", name))
+    end
+end
+
+-- Remove a player from the watchlist
+function BirthdayTracker:unmonitor(name)
+    name = name:title()
+    if table.contains(self.monitored, name) then
+        for i, v in ipairs(self.monitored) do
+            if v == name then table.remove(self.monitored, i) break end
+        end
+        self:save()
+        cecho(string.format("\n&lt;red&gt;[BIRTHDAY]: Removed %s from the watchlist.&lt;reset&gt;", name))
+    else
+        cecho(string.format("\n&lt;yellow&gt;[BIRTHDAY]: %s was not on the watchlist.&lt;reset&gt;", name))
+    end
+end
+
+-- Manually inject a birthday (for Sand of Aeon users)
+function BirthdayTracker:manualAdd(name, day, month)
+    name = name:title()
+    month = month:title()
+    
+    if not self.monthMap[month] then
+        cecho("\n&lt;red&gt;Invalid month: " .. month .. ". Use full Achaean names.&lt;reset&gt;")
+        return
+    end
+    
+    -- Year 0 indicates age is unknown/hidden
+    self.data[name] = { day = tonumber(day), month = month, year = 0 }
+    
+    -- Automatically add to watchlist if not already there
+    if not table.contains(self.monitored, name) then
+        table.insert(self.monitored, name)
+    end
+    self:save()
+    cecho(string.format("\n&lt;green&gt;[BIRTHDAY]: Manually set %s's birthday to %s %d.&lt;reset&gt;", name, month, day))
+end
+
+-- Core Logic
+function BirthdayTracker:checkUpcoming(verbose)
+    if not self.currentDate.year or self.currentDate.year == 0 then
+        cecho("&lt;red&gt;I don't know the current date yet. Type 'date'.&lt;reset&gt;\n")
+        return
+    end
+
+    local currentAbs = self:toAbsDay(self.currentDate.day, self.currentDate.month)
+    
+    if verbose then
+        cecho("\n")  
+        cecho("\n&lt;gold&gt;--- Birthday Watchlist ---&lt;reset&gt;\n") 
+        cecho(string.format("&lt;grey&gt;Date: %s %d, %d&lt;reset&gt;\n", self.currentDate.month, self.currentDate.day, self.currentDate.year))
+    end
+
+    local isMonitored = {}
+    for _, n in pairs(self.monitored) do isMonitored[n] = true end
+
+    -- Display Watchlist
+    local sortableWatchlist = {}
+    
+    for _, name in pairs(self.monitored) do
+        local bday = self.data[name]
+        if bday then
+            local bdayAbs = self:toAbsDay(bday.day, bday.month)
+            local daysLeft = 0
+            
+            if bdayAbs &gt;= currentAbs then daysLeft = bdayAbs - currentAbs
+            else daysLeft = (300 - currentAbs) + bdayAbs end
+            
+            -- NEW: Real Time Calculation (1 Game Day = 1 Real Hour)
+            local realTimeStr = ""
+            if daysLeft &lt; 24 then
+                realTimeStr = string.format("&lt;grey&gt;(%d hrs)&lt;reset&gt;", daysLeft)
+            else
+                local realDays = daysLeft / 24
+                realTimeStr = string.format("&lt;grey&gt;(%.1f days)&lt;reset&gt;", realDays)
+            end
+
+            -- Add to our temporary sorting table
+            table.insert(sortableWatchlist, {
+                name = name, 
+                days = daysLeft, 
+                month = bday.month, 
+                day = bday.day, 
+                realTime = realTimeStr -- Storing real time instead of age
+            })
+        elseif verbose then
+             cecho(string.format("&lt;grey&gt;%-12s: [No data - try 'honours %s']&lt;reset&gt;\n", name, name))
+        end
+    end
+
+    if verbose then cecho("&lt;gold&gt;--------------------------&lt;reset&gt;\n") end
+
+    table.sort(sortableWatchlist, function(a, b) return a.days &lt; b.days end)
+
+    for _, person in ipairs(sortableWatchlist) do
+        if verbose or person.days &lt;= 25 then
+            local color = "&lt;white&gt;"
+            if person.days &lt;= 10 then color = "&lt;red&gt;"
+            elseif person.days &lt;= 25 then color = "&lt;yellow&gt;"
+            end
+            
+            -- Updated print format
+            cecho(string.format("%s%-12s: %3d days (%s %d) %s&lt;reset&gt;\n", 
+                color, person.name, person.days, person.month, person.day, person.realTime))
+        end
+    end
+
+    -- Calculate "Others"
+    local limit = 168
+    local otherCount = 0
+    for name, bday in pairs(self.data) do
+        if not isMonitored[name] then
+            local bdayAbs = self:toAbsDay(bday.day, bday.month)
+            local daysLeft = 0
+            if bdayAbs &gt;= currentAbs then daysLeft = bdayAbs - currentAbs
+            else daysLeft = (300 - currentAbs) + bdayAbs end
+            
+            if daysLeft &lt;= limit then otherCount = otherCount + 1 end
+        end
+    end
+
+    if verbose and otherCount &gt; 0 then
+        cecho("\n&lt;grey&gt;There are " .. otherCount .. " other known birthdays in the next 7 real days.&lt;reset&gt;\n")
+        cechoLink("&lt;green&gt;[Click here to view them]&lt;reset&gt;\n", [[BirthdayTracker:showOthers()]], "View other birthdays", true)
+        cecho("\n")
+    end
+end
+
+function BirthdayTracker:showOthers()
+    local currentAbs = self:toAbsDay(self.currentDate.day, self.currentDate.month)
+    local limit = 168
+    local sortedList = {}
+    local isMonitored = {}
+    for _, n in pairs(self.monitored) do isMonitored[n] = true end
+
+    for name, bday in pairs(self.data) do
+        if not isMonitored[name] then
+            local bdayAbs = self:toAbsDay(bday.day, bday.month)
+            local daysLeft = 0
+            if bdayAbs &gt;= currentAbs then daysLeft = bdayAbs - currentAbs
+            else daysLeft = (300 - currentAbs) + bdayAbs end
+            
+            if daysLeft &lt;= limit then
+                table.insert(sortedList, {name=name, days=daysLeft, month=bday.month, day=bday.day, year=bday.year})
+            end
+        end
+    end
+
+    table.sort(sortedList, function(a,b) return a.days &lt; b.days end)
+
+    cecho("\n&lt;gold&gt;--- Other Upcoming Birthdays ---&lt;reset&gt;\n")
+    for _, v in ipairs(sortedList) do
+        local color = "&lt;grey&gt;"
+        if v.days &lt;= 25 then color = "&lt;white&gt;" end
+        
+        -- NEW: Real Time Calculation for "Others" list too
+        local realTimeStr = ""
+        if v.days &lt; 24 then
+            realTimeStr = string.format("&lt;grey&gt;(%d hrs)&lt;reset&gt;", v.days)
+        else
+            local realDays = v.days / 24
+            realTimeStr = string.format("&lt;grey&gt;(%.1f days)&lt;reset&gt;", realDays)
+        end
+
+        cecho(string.format("%s%-12s: %3d days (%s %d) %s&lt;reset&gt;\n", color, v.name, v.days, v.month, v.day, realTimeStr))
+    end
+    cecho("&lt;gold&gt;--------------------------------&lt;reset&gt;\n")
+end
+
+-- Help Function
+function BirthdayTracker:help()
+    cecho("\n&lt;gold&gt;-----------------------------------------------------------&lt;reset&gt;\n")
+    cecho("&lt;white&gt;          Solina's Birthday Tracker Help (v1.3)&lt;reset&gt;\n")
+    cecho("&lt;gold&gt;-----------------------------------------------------------&lt;reset&gt;\n")
+    cecho("&lt;green&gt;Data Collection:&lt;reset&gt;\n")
+    cecho("  &lt;yellow&gt;honours &lt;name&gt;&lt;reset&gt;      - Captures a player's birthday automatically.\n")
+    cecho("                        (Must use this alias, not just 'honours')\n")
+    cecho("  &lt;yellow&gt;bday add &lt;name&gt; &lt;day&gt; &lt;month&gt;&lt;reset&gt;\n")
+    cecho("                      - Manually set a birthday (for hidden ages).\n")
+    cecho("                        (e.g. bday add Solina 7 Valnuary)\n")
+    
+    cecho("\n&lt;green&gt;Management:&lt;reset&gt;\n")
+    cecho("  &lt;yellow&gt;bday monitor &lt;name&gt;&lt;reset&gt; - Add a player to your watchlist.\n")
+    cecho("  &lt;yellow&gt;bday unmonitor &lt;name&gt;&lt;reset&gt; - Remove a player from your watchlist.\n")
+    cecho("  &lt;yellow&gt;bday list&lt;reset&gt;           - Show all watched birthdays.\n")
+    
+    cecho("\n&lt;green&gt;System &amp; Diagnostics:&lt;reset&gt;\n")
+    cecho("  &lt;yellow&gt;bday date&lt;reset&gt;           - View the date currently stored in the tracker.\n")
+    cecho("  &lt;yellow&gt;date&lt;reset&gt;                - (Game Command) Forces Achaea to send the correct date.\n")
+    cecho("  &lt;yellow&gt;bday debug&lt;reset&gt;          - Show nerd stuff (for troubleshooting).\n")
+    cecho("&lt;gold&gt;-----------------------------------------------------------&lt;reset&gt;\n")
+end
+
+-- GMCP Handler
+function BirthdayTracker:onStatusChange()
+    if not gmcp or not gmcp.Char or not gmcp.Char.Status then return end
+    if gmcp.Char.Status.day then
+        local newDay = tonumber(gmcp.Char.Status.day)
+        if newDay ~= self.currentDate.day then
+            self.currentDate.day = newDay
+            self.currentDate.month = gmcp.Char.Status.month
+            self.currentDate.year = tonumber(gmcp.Char.Status.year)
+        end
+    end
+end
+if BirthdayTracker.eventHandlerID then killAnonymousEventHandler(BirthdayTracker.eventHandlerID) end
+BirthdayTracker.eventHandlerID = registerAnonymousEventHandler("gmcp.Char.Status", "BirthdayTracker:onStatusChange")
+
+-- Save/Load
+function BirthdayTracker:save()
+    local path = getMudletHomeDir() .. "/birthday_data.lua"
+    table.save(path, {data = self.data, monitored = self.monitored})
+end
+function BirthdayTracker:load()
+    local path = getMudletHomeDir() .. "/birthday_data.lua"
+    if io.exists(path) then
+        local content = {}
+        table.load(path, content)
+        self.data = content.data or {}
+        self.monitored = content.monitored or {}
+    end
+end
+
+-- Init
+BirthdayTracker:load()
+cecho("\n&lt;green&gt;[Solina's Birthday Tracker]: v1.3 Loaded.&lt;reset&gt;\n")</script>
+				<eventHandlerList />
+			</Script>
+		</ScriptGroup>
+	</ScriptPackage>
+	<KeyPackage />
+	<HelpPackage>
+		<helpURL></helpURL>
+	</HelpPackage>
+</MudletPackage>
