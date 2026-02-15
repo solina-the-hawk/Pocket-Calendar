@@ -73,8 +73,3 @@ TROUBLESHOOTING
 * **"Her date of birth is hidden..."**:
     The script detected a hidden age. Use `bday add <name> <day> <month>`
     to record it manually. It will show as "(Age Hidden)" in your list.
-
-
-* **Duplicate Tables in `bday list`**:
-    If you see two tables, another script (like SVO) might be using the
-    `bday` command. Use `plist` instead.]]
