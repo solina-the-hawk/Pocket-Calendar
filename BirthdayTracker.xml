@@ -124,9 +124,10 @@ BirthdayTracker:save()</script>
 					<integer>1</integer>
 				</regexCodePropertyList>
 			</Trigger>
-			<Trigger isActive="yes" isFolder="no" isTempTrigger="no" isMultiline="no" isPerlSlashGOption="no" isColorizerTrigger="no" isFilterTrigger="no" isSoundTrigger="no" isColorTrigger="no" isColorTriggerFg="no" isColorTriggerBg="no">
-				<name>Birthday Hidden Capture</name>
-				<script>if BirthdayTracker.currentLookup then
+		</TriggerGroup>
+		<Trigger isActive="yes" isFolder="no" isTempTrigger="no" isMultiline="no" isPerlSlashGOption="no" isColorizerTrigger="no" isFilterTrigger="no" isSoundTrigger="no" isColorTrigger="no" isColorTriggerFg="no" isColorTriggerBg="no">
+			<name>Birthday Hidden Capture</name>
+			<script>if BirthdayTracker.currentLookup then
     local name = BirthdayTracker.currentLookup
     cecho(string.format("\n&lt;yellow&gt;%s's age is hidden. If you want to track it, add it manually.&lt;reset&gt;", name))
     cecho("\n&lt;white&gt;If you know it, type: &lt;yellow&gt;bday add %s &lt;day&gt; &lt;month&gt;&lt;reset&gt;", name)
@@ -134,24 +135,23 @@ BirthdayTracker:save()</script>
     -- Reset lookup so we don't accidentally capture something else
     BirthdayTracker.currentLookup = nil
 end</script>
-				<triggerType>0</triggerType>
-				<conditonLineDelta>0</conditonLineDelta>
-				<mStayOpen>0</mStayOpen>
-				<mCommand></mCommand>
-				<packageName></packageName>
-				<mFgColor>#ff0000</mFgColor>
-				<mBgColor>#ffff00</mBgColor>
-				<mSoundFile></mSoundFile>
-				<colorTriggerFgColor>#000000</colorTriggerFgColor>
-				<colorTriggerBgColor>#000000</colorTriggerBgColor>
-				<regexCodeList>
-					<string>^(?:His|Her|Faes) date of birth is hidden by the sand of Aeon\.</string>
-				</regexCodeList>
-				<regexCodePropertyList>
-					<integer>1</integer>
-				</regexCodePropertyList>
-			</Trigger>
-		</TriggerGroup>
+			<triggerType>0</triggerType>
+			<conditonLineDelta>0</conditonLineDelta>
+			<mStayOpen>0</mStayOpen>
+			<mCommand></mCommand>
+			<packageName></packageName>
+			<mFgColor>#ff0000</mFgColor>
+			<mBgColor>#ffff00</mBgColor>
+			<mSoundFile></mSoundFile>
+			<colorTriggerFgColor>#000000</colorTriggerFgColor>
+			<colorTriggerBgColor>#000000</colorTriggerBgColor>
+			<regexCodeList>
+				<string>^(?:His|Her|Faes) date of birth is hidden by the sand of Aeon\.</string>
+			</regexCodeList>
+			<regexCodePropertyList>
+				<integer>1</integer>
+			</regexCodePropertyList>
+		</Trigger>
 	</TriggerPackage>
 	<TimerPackage />
 	<AliasPackage>
@@ -211,9 +211,17 @@ cecho("&lt;grey&gt;(If this is incorrect, type 'DATE' to force a game update)&lt
 				<packageName></packageName>
 				<regex>^bday date$</regex>
 			</Alias>
-			<Alias isActive="yes" isFolder="no">
-				<name>Birthday Debug</name>
-				<script>cecho("\n&lt;red&gt;--- BIRTHDAY TRACKER DEBUG ---&lt;reset&gt;\n")
+		</AliasGroup>
+		<Alias isActive="yes" isFolder="no">
+			<name>Birthday Manual Add</name>
+			<script>BirthdayTracker:manualAdd(matches[2], matches[3], matches[4])</script>
+			<command></command>
+			<packageName></packageName>
+			<regex>^(?i)bday\s+add\s+(\S+)\s+(\d+)\s+(\w+)$</regex>
+		</Alias>
+		<Alias isActive="yes" isFolder="no">
+			<name>Birthday Debug</name>
+			<script>cecho("\n&lt;red&gt;--- BIRTHDAY TRACKER DEBUG ---&lt;reset&gt;\n")
 
 -- 1. Display the date currently stored in memory
 local d = BirthdayTracker.currentDate
@@ -227,30 +235,17 @@ end
 cecho("\n&lt;grey&gt;This tracker updates when midnight occurs or you enter the &lt;white&gt;DATE&lt;grey&gt; command.&lt;reset&gt;\n")
 cecho("&lt;grey&gt;Type &lt;white&gt;DATE&lt;grey&gt; manually to force an immediate update.&lt;reset&gt;\n")
 cecho("&lt;red&gt;------------------------------&lt;reset&gt;\n")</script>
-				<command></command>
-				<packageName></packageName>
-				<regex>^bday debug$</regex>
-			</Alias>
-			<Alias isActive="yes" isFolder="no">
-				<name>Birthday Manual Add</name>
-				<script>BirthdayTracker:manualAdd(matches[2], matches[3], matches[4])</script>
-				<command></command>
-				<packageName></packageName>
-				<regex>^(?i)bday\s+add\s+(\S+)\s+(\d+)\s+(\w+)$</regex>
-			</Alias>
-		</AliasGroup>
+			<command></command>
+			<packageName></packageName>
+			<regex>^bday debug$</regex>
+		</Alias>
 	</AliasPackage>
 	<ActionPackage />
 	<ScriptPackage>
-		<ScriptGroup isActive="yes" isFolder="yes">
-			<name>Birthday Tracker</name>
+		<Script isActive="yes" isFolder="no">
+			<name>BirthdayTracker</name>
 			<packageName></packageName>
-			<script></script>
-			<eventHandlerList />
-			<Script isActive="yes" isFolder="no">
-				<name>BirthdayTracker</name>
-				<packageName></packageName>
-				<script>BirthdayTracker = BirthdayTracker or {}
+			<script>BirthdayTracker = BirthdayTracker or {}
 BirthdayTracker.data = BirthdayTracker.data or {}
 BirthdayTracker.monitored = BirthdayTracker.monitored or {}
 BirthdayTracker.currentDate = BirthdayTracker.currentDate or { day = 1, month = "Sarapin", year = 0 }
@@ -503,9 +498,8 @@ end
 -- Init
 BirthdayTracker:load()
 cecho("\n&lt;green&gt;[Solina's Birthday Tracker]: v1.3 Loaded.&lt;reset&gt;\n")</script>
-				<eventHandlerList />
-			</Script>
-		</ScriptGroup>
+			<eventHandlerList />
+		</Script>
 	</ScriptPackage>
 	<KeyPackage />
 	<HelpPackage>
