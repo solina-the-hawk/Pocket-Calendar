@@ -1,0 +1,11 @@
+Ship's Officer: Comprehensive Nautical Command Suite (v0.5.0)
+
+A comprehensive, all-in-one nautical Mudlet package for Achaea.
+
+Ship's Officer consolidates everything you need to build, manage, sail, and fight with your ship into a unified, modular UI accessed through a single master alias ("so"). 
+
+Features include the "Shipfitter" module for breaking down complex equipment into base materials, equilibrium-safe live market cost estimation, persistent nominal price tracking, and the "Navigator" module which provides a toggleable graphical interface for charting the Sea Wilderness map. 
+
+To configure your active modules, edit commodity conversion rates, or add new ship equipment to the calculator, simply open the Ship's Officer Core script in your Script Editor and adjust the tables at the top. 
+
+You can also type "so help" in the game to see a complete directory of commands and available nautical tools!
