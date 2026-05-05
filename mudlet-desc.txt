@@ -1,1 +1,9 @@
+Pocket Calendar: Time Management & Birthday Tracker (v1.0.0)
 
+A streamlined, zero-dependency calendar and event tracking system for Achaea that seamlessly bridges the gap between real-world time and Achaean in-game time. 
+
+Pocket Calendar cleanly organizes your schedule, allowing you to easily coordinate in-game events, translate log timestamps, and track player birthdays with a beautiful, Mindlink-inspired visual interface.
+
+Features include bi-directional date conversions, chronological event sorting with real-time countdowns, automatic 1-hour event warnings, GMT/Local timestamp parsing for reading news posts, and a fully integrated Birthday Tracker that passively catches ages from the honours command. 
+
+To view your schedule, perform a time lookup, or manage your watchlists, simply type "cal help" in the game to see a full list of on-the-fly commands!
