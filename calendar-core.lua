@@ -1,4 +1,4 @@
---- =========================================================================
+-- =========================================================================
 -- POCKET CALENDAR CORE
 -- Converts between Achaean and Real-World Dates
 -- =========================================================================
@@ -10,18 +10,17 @@ PocketCalendar.currentDate = PocketCalendar.currentDate or { hour = 0, day = 1, 
 PocketCalendar.birthdays = PocketCalendar.birthdays or {}
 PocketCalendar.monitoredBirthdays = PocketCalendar.monitoredBirthdays or {}
 
--- INJECT CUSTOM RGB COLORS INTO MUDLET's DICTIONARY
+-- USER CONFIGURABLE RGB COLORS
 color_table.cal_main = {0, 153, 153}
 color_table.cal_accent = {255, 215, 0}
 color_table.cal_text = {200, 200, 200}
 color_table.cal_warn = {255, 69, 0}
 
--- VISUAL PALETTE (Now using our safe, custom-named RGB colors)
 PocketCalendar.colors = {
-    main = "<cal_main>",   -- Deep Blue-Green (Borders, System Prefix, Headers)
-    accent = "<cal_accent>", -- Gold (Commands, Dates, Important Data)
-    text = "<cal_text>",   -- Soft Silver (Standard descriptions)
-    warn = "<cal_warn>"    -- Orange Red (For critical countdown warnings)
+    main = "<cal_main>",
+    accent = "<cal_accent>",
+    text = "<cal_text>",
+    warn = "<cal_warn>"
 }
 
 PocketCalendar.monthMap = {
@@ -69,7 +68,7 @@ function PocketCalendar:AchaeanToReal(targetDay, targetMonth, targetYear, target
     local targetAbs = self:getAbsAchaeanHour(targetHour or 0, targetDay, targetMonth, targetYear)
 
     local diffGameHours = targetAbs - currentAbs
-    local realSecondsDiff = diffGameHours * 150 -- 1 Achaean hour = 150 real seconds
+    local realSecondsDiff = diffGameHours * 150
 
     return os.time() + realSecondsDiff
 end
@@ -219,6 +218,36 @@ function PocketCalendar:addRealRelativeEvent(eventName, amount, unit)
     self:save()
 end
 
+function PocketCalendar:addRealTimestampEvent(eventName, year, month, day, hour, min, sec, timeType)
+    local uncorrectedUnixTime = os.time({
+        year = tonumber(year), month = tonumber(month), day = tonumber(day), 
+        hour = tonumber(hour), min = tonumber(min), sec = tonumber(sec)
+    })
+    
+    local targetUnixTime = uncorrectedUnixTime
+    if timeType == "gmt" then
+        targetUnixTime = uncorrectedUnixTime + (self.gmtOffset * 3600)
+    end
+    
+    local achaeanDate = self:RealToAchaean(targetUnixTime)
+    if not achaeanDate then
+        cecho(string.format("\n%s[Pocket Calendar]:%s %sI don't know the current date yet. Type 'DATE'.%s\n", self.colors.main, "<reset>", self.colors.warn, "<reset>"))
+        return
+    end
+
+    table.insert(self.events, {
+        name = eventName,
+        achaean = achaeanDate,
+        realTime = targetUnixTime,
+        warn = false
+    })
+
+    cecho(string.format("\n%s[Pocket Calendar]:%s %sImported event %s'%s'%s for %s%s %d, %d%s.\n", 
+        self.colors.main, "<reset>", self.colors.text, self.colors.accent, eventName, self.colors.text, 
+        self.colors.accent, achaeanDate.month, achaeanDate.day, achaeanDate.year, "<reset>"))
+    self:save()
+end
+
 function PocketCalendar:removeEvent(searchTerm)
     if #self.events == 0 then
         cecho(string.format("\n%s[Pocket Calendar]:%s %sNo events to remove.%s\n", self.colors.main, "<reset>", self.colors.text, "<reset>"))
@@ -303,7 +332,6 @@ function PocketCalendar:listEvents()
     local validEvents = {}
     local combinedEvents = {}
     
-    -- 1. Process regular events (and clear out expired ones)
     for _, event in ipairs(self.events) do
         if event.realTime > currentTime then
             table.insert(validEvents, event)
@@ -314,16 +342,13 @@ function PocketCalendar:listEvents()
     self.events = validEvents
     self:save()
 
-    -- 2. Process monitored birthdays dynamically
     local currentAbs = self:getAbsAchaeanHour(self.currentDate.hour, self.currentDate.day, self.currentDate.month, self.currentDate.year)
     
     for name, bday in pairs(self.birthdays) do
         if table.contains(self.monitoredBirthdays, name) then
-            -- Assume birthdays strike at Achaean Hour 0
             local bdayAbs = self:getAbsAchaeanHour(0, bday.day, bday.month, self.currentDate.year)
             local achaeanHoursLeft = bdayAbs - currentAbs
             
-            -- If it already passed this year, it happens next year (+300 days * 24 hours)
             local targetYear = self.currentDate.year
             if achaeanHoursLeft < 0 then 
                 achaeanHoursLeft = achaeanHoursLeft + (300 * 24) 
@@ -347,7 +372,6 @@ function PocketCalendar:listEvents()
         return
     end
 
-    -- Sort everything (events and birthdays) chronologically
     table.sort(combinedEvents, function(a, b) return a.realTime < b.realTime end)
     
     cecho(string.format("\n%s=======================================================================%s\n", self.colors.main, "<reset>"))
@@ -384,6 +408,7 @@ function PocketCalendar:listEvents()
     end
     
     cecho(string.format("\n%s=======================================================================%s\n", self.colors.main, "<reset>"))
+    cecho(string.format("%s                  Type %scal help%s %sfor a list of commands.                  %s\n", self.colors.text, self.colors.accent, self.colors.text, self.colors.text, "<reset>"))
 end
 
 function PocketCalendar:help()
@@ -401,22 +426,20 @@ function PocketCalendar:help()
 
     cecho(string.format("%sAdding Events:%s\n", m, r))
     cecho(string.format("  %scal add achaea <name> <day> <month> <year>%s\n", a, r))
-    cecho(string.format("  %scal add real <name> in <number> <hours/days/weeks>%s\n\n", a, r))
+    cecho(string.format("  %scal add real <name> in <number> <hours/days/weeks>%s\n", a, r))
+    cecho(string.format("  %scal upcoming <#>%s         - Imports an event from Achaea's UPCOMING list.%s\n\n", a, r, r))
     
     cecho(string.format("%sLookups (Does not save to list):%s\n", m, r))
     cecho(string.format("  %scal check achaea <day> <month> <year>%s\n", a, r))
-    cecho(string.format("      - %s(e.g., cal check achaea 23 Glacian 950)%s\n", t, r))
     cecho(string.format("  %scal check real in <number> <mins/hours/days>%s\n", a, r))
-    cecho(string.format("      - %s(e.g., cal check real in 2 hours)%s\n", t, r))
-    cecho(string.format("  %scal check real <gmt/local> <YYYY/MM/DD HH:MM:SS>%s\n", a, r))
-    cecho(string.format("      - %s(e.g., cal check real gmt 2026/05/01 05:05:11)%s\n\n", t, r))
+    cecho(string.format("  %scal check real <gmt/local> <YYYY/MM/DD HH:MM:SS>%s\n\n", a, r))
     
     cecho(string.format("%sBirthday Tracking:%s\n", m, r))
     cecho(string.format("  %scal bday list%s          - Shows watched birthdays with countdowns.\n", a, r))
     cecho(string.format("  %scal bday monitor <name>%s- Adds a player to your birthday watchlist.\n", a, r))
     cecho(string.format("  %scal bday unmonitor <name>%s- Removes a player.\n", a, r))
-    cecho(string.format("  %scal bday add <name> <day> <month>%s\n", a, r))
-    cecho(string.format("      - %s(e.g., cal bday add Solina 7 Valnuary)%s\n\n", t, r))
+    cecho(string.format("  %scal bday add <name> <d> <m>%s\n", a, r))
+    cecho(string.format("  %scal bday clear%s         - Wipes your entire monitored watchlist.%s\n\n", a, r, r))
     
     cecho(string.format("%sManaging Events:%s\n", m, r))
     cecho(string.format("  %scal list%s             - Shows all upcoming events.\n", a, r))
@@ -425,7 +448,6 @@ function PocketCalendar:help()
 
     cecho(string.format("%sSystem Setup:%s\n", m, r))
     cecho(string.format("  %scal timezone <#>%s     - Sets your local hour offset from GMT.\n", a, r))
-    cecho(string.format("      - %s(e.g., cal timezone -5)%s\n", t, r))
     cecho(string.format("  %sDATE%s                 - (Game Command) Syncs your current Achaean date.\n", a, r))
     cecho(string.format("%s=======================================================================%s\n", m, r))
 end
@@ -435,13 +457,13 @@ end
 -- =========================================================================
 
 function PocketCalendar:handleCommand(input)
-    if not input or input == "" or input:lower() == "help" then
-        self:help()
+    if not input or input == "" or input:lower() == "list" then
+        self:listEvents()
         return
     end
 
-    if input:lower() == "list" then
-        self:listEvents()
+    if input:lower() == "help" then
+        self:help()
         return
     end
 
@@ -454,6 +476,25 @@ function PocketCalendar:handleCommand(input)
     local rName, rAmt, rUnit = input:match("^[Aa][Dd][Dd] [Rr][Ee][Aa][Ll]%s+(.+)%s+in%s+(%d+)%s+(%a+)$")
     if rName then
         self:addRealRelativeEvent(rName, tonumber(rAmt), rUnit)
+        return
+    end
+    
+    local upID = input:match("^[Uu][Pp][Cc][Oo][Mm][Ii][Nn][Gg].-(%d+)%s*$")
+    if upID then
+        self.awaitingUpcoming = true
+        self.tempUpcomingTitle = "Unknown Event"
+        send("upcoming info " .. upID)
+
+        if self.titleCatchTrigger then killTrigger(self.titleCatchTrigger) end
+        self.titleCatchTrigger = tempRegexTrigger("^(.+)$", function()
+            local txt = matches[2]
+            if txt:match("^%-%-%-%-%-%-+") then
+                killTrigger(PocketCalendar.titleCatchTrigger)
+                PocketCalendar.titleCatchTrigger = nil
+            elseif not txt:lower():match("^upcoming info") then
+                PocketCalendar.tempUpcomingTitle = txt
+            end
+        end)
         return
     end
 
@@ -469,36 +510,36 @@ function PocketCalendar:handleCommand(input)
         return
     end
 
-    -- cal bday add <name> <day> <month>
     local bName, bDay, bMonth = input:match("^[Bb][Dd][Aa][Yy] [Aa][Dd][Dd]%s+(%w+)%s+(%d+)%s+(%a+)$")
     if bName then
-        self:addBirthday(bName, bDay, bMonth, true) -- TRUE means we deliberately want to monitor this
+        self:addBirthday(bName, bDay, bMonth, true) 
         return
     end
 
-    -- cal bday monitor <name>
     local bMonName = input:match("^[Bb][Dd][Aa][Yy] [Mm][Oo][Nn][Ii][Tt][Oo][Rr]%s+(%w+)$")
     if bMonName then
         self:monitorBirthday(bMonName)
         return
     end
 
-    -- cal bday unmonitor <name>
     local bUnmonName = input:match("^[Bb][Dd][Aa][Yy] [Uu][Nn][Mm][Oo][Nn][Ii][Tt][Oo][Rr]%s+(%w+)$")
     if bUnmonName then
         self:unmonitorBirthday(bUnmonName)
         return
     end
 
-    -- cal bday list
     if input:lower() == "bday list" then
         self:listBirthdays(false)
         return
     end
     
-    -- cal bday others (Shows all)
     if input:lower() == "bday others" then
         self:listBirthdays(true)
+        return
+    end
+
+    if input:lower() == "bday clear" then
+        self:clearMonitoredBirthdays()
         return
     end
 
@@ -572,7 +613,6 @@ end
 -- BIRTHDAY TRACKER MODULE
 -- =========================================================================
 
--- Adds or updates a birthday in the database
 function PocketCalendar:addBirthday(name, day, month, autoMonitor)
     name = name:title()
     month = month:title()
@@ -584,14 +624,12 @@ function PocketCalendar:addBirthday(name, day, month, autoMonitor)
     
     self.birthdays[name] = { day = tonumber(day), month = month }
     
-    -- Auto-monitor ONLY if the autoMonitor flag is true
     if autoMonitor and not table.contains(self.monitoredBirthdays, name) then
         table.insert(self.monitoredBirthdays, name)
     end
     
     self:save()
     
-    -- Adjust the feedback message so you know exactly what happened
     if autoMonitor then
         cecho(string.format("\n%s[Pocket Calendar]:%s %sSaved and monitored %s%s's%s birthday as %s%s %d%s.\n", 
             self.colors.main, "<reset>", self.colors.text, self.colors.accent, name, self.colors.text,
@@ -627,6 +665,14 @@ function PocketCalendar:unmonitorBirthday(name)
     end
 end
 
+function PocketCalendar:clearMonitoredBirthdays()
+    local count = #self.monitoredBirthdays
+    self.monitoredBirthdays = {}
+    self:save()
+    cecho(string.format("\n%s[Pocket Calendar]:%s %sCleared %s%d%s monitored birthdays from your watchlist. (Known birthdays were kept).%s\n", 
+        self.colors.main, "<reset>", self.colors.text, self.colors.accent, count, self.colors.text, "<reset>"))
+end
+
 function PocketCalendar:listBirthdays(showAll)
     if self.currentDate.year == 0 then
         cecho(string.format("\n%s[Pocket Calendar]:%s %sI don't know the current date yet. Type 'DATE'.%s\n", self.colors.main, "<reset>", self.colors.warn, "<reset>"))
@@ -639,11 +685,9 @@ function PocketCalendar:listBirthdays(showAll)
 
     for name, bday in pairs(self.birthdays) do
         local isMonitored = table.contains(self.monitoredBirthdays, name)
-        
         local bdayAbs = self:getAbsAchaeanHour(0, bday.day, bday.month, self.currentDate.year)
         local achaeanHoursLeft = bdayAbs - currentAbs
         
-        -- If it already passed this year, it happens next year
         if achaeanHoursLeft < 0 then achaeanHoursLeft = achaeanHoursLeft + (300 * 24) end
         
         local realSecondsLeft = achaeanHoursLeft * 150
@@ -651,7 +695,6 @@ function PocketCalendar:listBirthdays(showAll)
         if showAll or isMonitored then
             table.insert(sortedList, { name = name, realSecondsLeft = realSecondsLeft, month = bday.month, day = bday.day, monitored = isMonitored })
         elseif not isMonitored then
-            -- Count unmonitored birthdays within the next 7 real days (168 hours)
             if realSecondsLeft <= (168 * 3600) then otherCount = otherCount + 1 end
         end
     end
@@ -682,7 +725,6 @@ function PocketCalendar:listBirthdays(showAll)
             timeLeftStr = string.format("%dm", realMins)
         end
 
-        -- Highlight non-monitored ones differently if we are showing all
         local nameColor = person.monitored and self.colors.accent or self.colors.text
 
         cecho(string.format("   %s%-18s%s | %sIn %-10s%s | %s%s %d%s\n", 
@@ -707,7 +749,6 @@ PocketCalendar:load()
 -- =========================================================================
 
 function PocketCalendar:onTimeChange(event)
-    -- Determine which GMCP table updated
     local timeData = nil
     if event == "gmcp.IRE.Time.List" then
         timeData = gmcp.IRE.Time.List
@@ -719,7 +760,6 @@ function PocketCalendar:onTimeChange(event)
     
     local updated = false
     
-    -- Overwrite our current date with the background GMCP data
     if timeData.hour then
         self.currentDate.hour = tonumber(timeData.hour)
         updated = true
@@ -746,44 +786,34 @@ end
 -- INITIALIZATION & DYNAMIC TRIGGERS
 -- =========================================================================
 
--- =========================================================================
--- INITIALIZATION & DYNAMIC TRIGGERS
--- =========================================================================
-
 function PocketCalendar:init()
-    -- Clean up old dynamic triggers/aliases if the script is saved/reloaded
     if self.calAlias then killAlias(self.calAlias) end
     if self.honoursAlias then killAlias(self.honoursAlias) end
     if self.birthdayTrigger then killTrigger(self.birthdayTrigger) end
     if self.dateTrigger then killTrigger(self.dateTrigger) end
+    if self.upcomingTrigger then killTrigger(self.upcomingTrigger) end
     if self.timeListHandler then killAnonymousEventHandler(self.timeListHandler) end
     if self.timeUpdateHandler then killAnonymousEventHandler(self.timeUpdateHandler) end
 
-    -- 1. Master Command Alias
     self.calAlias = tempAlias("^(?i)cal(?:\\s+(.*))?$", function()
         local input = matches[2] or ""
         PocketCalendar:handleCommand(input)
     end)
 
-    -- 2. Dynamic Alias: Honours
     self.honoursAlias = tempAlias("^(?i)honours (\\w+)$", function()
         PocketCalendar.currentLookup = matches[2]:title()
         send(matches[1])
     end)
 
-    -- 3. Dynamic Trigger: Honours
     self.birthdayTrigger = tempRegexTrigger("^.*born on the (\\d+)(?:st|nd|rd|th) of (\\w+), (\\d+)", function()
         if PocketCalendar.currentLookup then
             local bDay = matches[2]
             local bMonth = matches[3]
-            
-            -- Pass FALSE so background tracking merely learns the date without monitoring it
             PocketCalendar:addBirthday(PocketCalendar.currentLookup, bDay, bMonth, false)
             PocketCalendar.currentLookup = nil
         end
     end)
 
-    -- 4. Dynamic Trigger: DATE Command
     self.dateTrigger = tempRegexTrigger("^Today is the (\\d+)(?:st|nd|rd|th) of (\\w+), (\\d+) years after", function()
         PocketCalendar.currentDate.day = tonumber(matches[2])
         PocketCalendar.currentDate.month = matches[3]
@@ -794,16 +824,24 @@ function PocketCalendar:init()
             PocketCalendar.colors.accent, PocketCalendar.currentDate.month, PocketCalendar.currentDate.day, PocketCalendar.currentDate.year, "<reset>"))
     end)
 
-    -- 5. GMCP Background Handlers
+    self.upcomingTrigger = tempRegexTrigger([[GMT Time:[^0-9]*(\d+)/(\d+)/(\d+)[^0-9]*(\d+):(\d+):(\d+)]], function()
+        if PocketCalendar.awaitingUpcoming then
+            PocketCalendar.awaitingUpcoming = false
+            local eventName = PocketCalendar.tempUpcomingTitle or "Unknown Event"
+            eventName = string.gsub(eventName, "^[%s\128-\255]*(.-)[%s\128-\255]*$", "%1") 
+            local tYear, tMonth, tDay = matches[2], matches[3], matches[4]
+            local tHour, tMin, tSec = matches[5], matches[6], matches[7]
+            PocketCalendar:addRealTimestampEvent(eventName, tYear, tMonth, tDay, tHour, tMin, tSec, "gmt")
+        end
+    end)
+
     self.timeListHandler = registerAnonymousEventHandler("gmcp.IRE.Time.List", "PocketCalendar:onTimeChange")
     self.timeUpdateHandler = registerAnonymousEventHandler("gmcp.IRE.Time.Update", "PocketCalendar:onTimeChange")
     
-    -- Handshake: Ask the server to start sending IRE.Time
     sendGMCP([[Core.Supports.Add ["IRE.Time 1"] ]])
 
     cecho(string.format("\n%s[Pocket Calendar]:%s %sFully Initialized. Type %scal help%s %sfor options.%s\n", 
         self.colors.main, "<reset>", self.colors.text, self.colors.accent, self.colors.text, self.colors.text, "<reset>"))
 end
 
--- Run the initialization
 PocketCalendar:init()
