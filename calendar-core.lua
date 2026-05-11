@@ -6,7 +6,7 @@
 PocketCalendar = PocketCalendar or {}
 PocketCalendar.events = PocketCalendar.events or {}
 PocketCalendar.gmtOffset = PocketCalendar.gmtOffset or 0 
-PocketCalendar.currentDate = PocketCalendar.currentDate or { day = 1, month = "Sarapin", year = 0 }
+PocketCalendar.currentDate = PocketCalendar.currentDate or { hour = 0, day = 1, month = "Sarapin", year = 0 }
 PocketCalendar.birthdays = PocketCalendar.birthdays or {}
 PocketCalendar.monitoredBirthdays = PocketCalendar.monitoredBirthdays or {}
 
@@ -40,35 +40,36 @@ PocketCalendar.monthList = {
 -- TIME MATHEMATICS
 -- =========================================================================
 
-function PocketCalendar:getAbsAchaeanDay(day, month, year)
+function PocketCalendar:getAbsAchaeanHour(hour, day, month, year)
     local monthNum = self.monthMap[month] or 1
-    return (year * 300) + ((monthNum - 1) * 25) + (day - 1)
+    local absDays = (year * 300) + ((monthNum - 1) * 25) + (day - 1)
+    return (absDays * 24) + (hour or 0)
 end
 
-function PocketCalendar:absDayToAchaean(absDay)
-    local tYear = math.floor(absDay / 300)
-    local remainder = absDay % 300
+function PocketCalendar:absHourToAchaean(absHour)
+    local absDays = math.floor(absHour / 24)
+    local tHour = absHour % 24
+    
+    local tYear = math.floor(absDays / 300)
+    local remainder = absDays % 300
     local tMonthNum = math.floor(remainder / 25) + 1
     local tDay = (remainder % 25) + 1
     
-    return { day = tDay, month = self.monthList[tMonthNum], year = tYear }
+    return { hour = tHour, day = tDay, month = self.monthList[tMonthNum], year = tYear }
 end
 
 -- =========================================================================
 -- CONVERSIONS & LOOKUPS
 -- =========================================================================
 
-function PocketCalendar:AchaeanToReal(targetDay, targetMonth, targetYear)
-    if self.currentDate.year == 0 then 
-        cecho(string.format("\n%s[Pocket Calendar]:%s %sI don't know the current Achaean date yet. Type 'DATE'.%s\n", self.colors.main, "<reset>", self.colors.warn, "<reset>"))
-        return nil 
-    end
+function PocketCalendar:AchaeanToReal(targetDay, targetMonth, targetYear, targetHour)
+    if self.currentDate.year == 0 then return nil end
 
-    local currentAbs = self:getAbsAchaeanDay(self.currentDate.day, self.currentDate.month, self.currentDate.year)
-    local targetAbs = self:getAbsAchaeanDay(targetDay, targetMonth, targetYear)
+    local currentAbs = self:getAbsAchaeanHour(self.currentDate.hour, self.currentDate.day, self.currentDate.month, self.currentDate.year)
+    local targetAbs = self:getAbsAchaeanHour(targetHour or 0, targetDay, targetMonth, targetYear)
 
-    local diffGameDays = targetAbs - currentAbs
-    local realSecondsDiff = diffGameDays * 3600 
+    local diffGameHours = targetAbs - currentAbs
+    local realSecondsDiff = diffGameHours * 150 -- 1 Achaean hour = 150 real seconds
 
     return os.time() + realSecondsDiff
 end
@@ -78,12 +79,12 @@ function PocketCalendar:RealToAchaean(targetUnixTime)
 
     local currentUnix = os.time()
     local diffSeconds = targetUnixTime - currentUnix
-    local diffGameDays = math.floor(diffSeconds / 3600)
+    local diffGameHours = math.floor(diffSeconds / 150)
 
-    local currentAbs = self:getAbsAchaeanDay(self.currentDate.day, self.currentDate.month, self.currentDate.year)
-    local targetAbs = currentAbs + diffGameDays
+    local currentAbs = self:getAbsAchaeanHour(self.currentDate.hour, self.currentDate.day, self.currentDate.month, self.currentDate.year)
+    local targetAbs = currentAbs + diffGameHours
 
-    return self:absDayToAchaean(targetAbs)
+    return self:absHourToAchaean(targetAbs)
 end
 
 function PocketCalendar:lookupRealTimestamp(year, month, day, hour, min, sec, timeType)
@@ -191,8 +192,9 @@ function PocketCalendar:addRealRelativeEvent(eventName, amount, unit)
     if unit:match("hour") then multiplier = 3600
     elseif unit:match("day") then multiplier = 86400
     elseif unit:match("week") then multiplier = 604800
+    elseif unit:match("min") then multiplier = 60
     else
-        cecho(string.format("\n%s[Pocket Calendar]:%s %sInvalid time unit. Use hours, days, or weeks.%s\n", self.colors.main, "<reset>", self.colors.warn, "<reset>"))
+        cecho(string.format("\n%s[Pocket Calendar]:%s %sInvalid time unit. Use mins, hours, days, or weeks.%s\n", self.colors.main, "<reset>", self.colors.warn, "<reset>"))
         return
     end
 
@@ -313,17 +315,20 @@ function PocketCalendar:listEvents()
             local diff = event.realTime - currentTime
             local daysLeft = math.floor(diff / 86400)
             local hoursLeft = math.floor((diff % 86400) / 3600)
+            local minsLeft = math.floor((diff % 3600) / 60)
             
             local timeLeftStr = ""
             if daysLeft > 0 then
-                timeLeftStr = string.format("%dd %dh", daysLeft, hoursLeft)
+                timeLeftStr = string.format("%dd %dh %dm", daysLeft, hoursLeft, minsLeft)
+            elseif hoursLeft > 0 then
+                timeLeftStr = string.format("%dh %dm", hoursLeft, minsLeft)
             else
-                timeLeftStr = string.format("%dh", hoursLeft)
+                timeLeftStr = string.format("%dm", minsLeft)
             end
 
             local warnStr = event.warn and string.format("%s[W]%s", self.colors.warn, "<reset>") or "   "
 
-            cecho(string.format(" %s %s%-22s%s | %sIn %-7s%s | %s%s %d, %d%s\n", 
+            cecho(string.format(" %s %s%-22s%s | %sIn %-10s%s | %s%s %d, %d%s\n", 
                 warnStr,
                 self.colors.accent, event.name, "<reset>",
                 self.colors.main, timeLeftStr, "<reset>",
@@ -642,35 +647,102 @@ end
 PocketCalendar:load()
 
 -- =========================================================================
+-- GMCP TIME SYNC
+-- =========================================================================
+
+function PocketCalendar:onTimeChange(event)
+    -- Determine which GMCP table updated
+    local timeData = nil
+    if event == "gmcp.IRE.Time.List" then
+        timeData = gmcp.IRE.Time.List
+    elseif event == "gmcp.IRE.Time.Update" then
+        timeData = gmcp.IRE.Time.Update
+    end
+    
+    if not timeData then return end
+    
+    local updated = false
+    
+    -- Overwrite our current date with the background GMCP data
+    if timeData.hour then
+        self.currentDate.hour = tonumber(timeData.hour)
+        updated = true
+    end
+    if timeData.day then
+        self.currentDate.day = tonumber(timeData.day)
+        updated = true
+    end
+    if timeData.month then
+        self.currentDate.month = timeData.month
+        updated = true
+    end
+    if timeData.year then
+        self.currentDate.year = tonumber(timeData.year)
+        updated = true
+    end
+    
+    if updated then
+        self:save()
+    end
+end
+
+-- =========================================================================
+-- INITIALIZATION & DYNAMIC TRIGGERS
+-- =========================================================================
+
+-- =========================================================================
 -- INITIALIZATION & DYNAMIC TRIGGERS
 -- =========================================================================
 
 function PocketCalendar:init()
     -- Clean up old dynamic triggers/aliases if the script is saved/reloaded
+    if self.calAlias then killAlias(self.calAlias) end
     if self.honoursAlias then killAlias(self.honoursAlias) end
     if self.birthdayTrigger then killTrigger(self.birthdayTrigger) end
+    if self.dateTrigger then killTrigger(self.dateTrigger) end
+    if self.timeListHandler then killAnonymousEventHandler(self.timeListHandler) end
+    if self.timeUpdateHandler then killAnonymousEventHandler(self.timeUpdateHandler) end
 
-    -- 1. Dynamic Alias: Catches the 'honours <name>' command
+    -- 1. Master Command Alias
+    self.calAlias = tempAlias("^(?i)cal(?:\\s+(.*))?$", function()
+        local input = matches[2] or ""
+        PocketCalendar:handleCommand(input)
+    end)
+
+    -- 2. Dynamic Alias: Honours
     self.honoursAlias = tempAlias("^(?i)honours (\\w+)$", function()
-        -- Store the name locally to wait for the birthday line
         PocketCalendar.currentLookup = matches[2]:title()
-        
-        -- Send the actual command to the game
         send(matches[1])
     end)
 
-    -- 2. Dynamic Trigger: Catches the resulting birthday line
+    -- 3. Dynamic Trigger: Honours
     self.birthdayTrigger = tempRegexTrigger("^.*born on the (\\d+)(?:st|nd|rd|th) of (\\w+), (\\d+)", function()
-        -- Only save it if we specifically used the honours alias!
         if PocketCalendar.currentLookup then
             local bDay = matches[2]
             local bMonth = matches[3]
-            
             PocketCalendar:addBirthday(PocketCalendar.currentLookup, bDay, bMonth)
             PocketCalendar.currentLookup = nil
         end
     end)
+
+    -- 4. Dynamic Trigger: DATE Command
+    self.dateTrigger = tempRegexTrigger("^Today is the (\\d+)(?:st|nd|rd|th) of (\\w+), (\\d+) years after", function()
+        PocketCalendar.currentDate.day = tonumber(matches[2])
+        PocketCalendar.currentDate.month = matches[3]
+        PocketCalendar.currentDate.year = tonumber(matches[4])
+        PocketCalendar:save()
+        cecho(string.format("\n%s[Pocket Calendar]:%s %sDate synchronized! It is now %s%s %d, %d%s.\n", 
+            PocketCalendar.colors.main, "<reset>", PocketCalendar.colors.text, 
+            PocketCalendar.colors.accent, PocketCalendar.currentDate.month, PocketCalendar.currentDate.day, PocketCalendar.currentDate.year, "<reset>"))
+    end)
+
+    -- 5. GMCP Background Handlers
+    self.timeListHandler = registerAnonymousEventHandler("gmcp.IRE.Time.List", "PocketCalendar:onTimeChange")
+    self.timeUpdateHandler = registerAnonymousEventHandler("gmcp.IRE.Time.Update", "PocketCalendar:onTimeChange")
     
+    -- Handshake: Ask the server to start sending IRE.Time
+    sendGMCP([[Core.Supports.Add ["IRE.Time 1"] ]])
+
     cecho(string.format("\n%s[Pocket Calendar]:%s %sFully Initialized. Type %scal help%s %sfor options.%s\n", 
         self.colors.main, "<reset>", self.colors.text, self.colors.accent, self.colors.text, self.colors.text, "<reset>"))
 end
