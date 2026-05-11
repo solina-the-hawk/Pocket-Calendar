@@ -294,50 +294,94 @@ end
 -- =========================================================================
 
 function PocketCalendar:listEvents()
-    if #self.events == 0 then
-        cecho(string.format("\n%s[Pocket Calendar]:%s %sNo upcoming events.%s\n", self.colors.main, "<reset>", self.colors.text, "<reset>"))
+    if self.currentDate.year == 0 then
+        cecho(string.format("\n%s[Pocket Calendar]:%s %sI don't know the current Achaean date yet. Type 'DATE'.%s\n", self.colors.main, "<reset>", self.colors.warn, "<reset>"))
         return
     end
 
-    table.sort(self.events, function(a, b) return a.realTime < b.realTime end)
-
     local currentTime = os.time()
     local validEvents = {}
+    local combinedEvents = {}
     
-    cecho(string.format("\n%s=======================================================================%s\n", self.colors.main, "<reset>"))
-    cecho(string.format("%s                    U P C O M I N G   E V E N T S                      %s\n", self.colors.main, "<reset>"))
-    cecho(string.format("%s=======================================================================%s\n\n", self.colors.main, "<reset>"))
-    
+    -- 1. Process regular events (and clear out expired ones)
     for _, event in ipairs(self.events) do
         if event.realTime > currentTime then
             table.insert(validEvents, event)
-            
-            local diff = event.realTime - currentTime
-            local daysLeft = math.floor(diff / 86400)
-            local hoursLeft = math.floor((diff % 86400) / 3600)
-            local minsLeft = math.floor((diff % 3600) / 60)
-            
-            local timeLeftStr = ""
-            if daysLeft > 0 then
-                timeLeftStr = string.format("%dd %dh %dm", daysLeft, hoursLeft, minsLeft)
-            elseif hoursLeft > 0 then
-                timeLeftStr = string.format("%dh %dm", hoursLeft, minsLeft)
-            else
-                timeLeftStr = string.format("%dm", minsLeft)
-            end
-
-            local warnStr = event.warn and string.format("%s[W]%s", self.colors.warn, "<reset>") or "   "
-
-            cecho(string.format(" %s %s%-22s%s | %sIn %-10s%s | %s%s %d, %d%s\n", 
-                warnStr,
-                self.colors.accent, event.name, "<reset>",
-                self.colors.main, timeLeftStr, "<reset>",
-                self.colors.text, event.achaean.month, event.achaean.day, event.achaean.year, "<reset>"))
+            table.insert(combinedEvents, event)
         end
     end
     
     self.events = validEvents
     self:save()
+
+    -- 2. Process monitored birthdays dynamically
+    local currentAbs = self:getAbsAchaeanHour(self.currentDate.hour, self.currentDate.day, self.currentDate.month, self.currentDate.year)
+    
+    for name, bday in pairs(self.birthdays) do
+        if table.contains(self.monitoredBirthdays, name) then
+            -- Assume birthdays strike at Achaean Hour 0
+            local bdayAbs = self:getAbsAchaeanHour(0, bday.day, bday.month, self.currentDate.year)
+            local achaeanHoursLeft = bdayAbs - currentAbs
+            
+            -- If it already passed this year, it happens next year (+300 days * 24 hours)
+            local targetYear = self.currentDate.year
+            if achaeanHoursLeft < 0 then 
+                achaeanHoursLeft = achaeanHoursLeft + (300 * 24) 
+                targetYear = targetYear + 1
+            end
+            
+            local realSecondsLeft = achaeanHoursLeft * 150
+            
+            table.insert(combinedEvents, {
+                name = name .. "'s Birthday",
+                realTime = currentTime + realSecondsLeft,
+                achaean = { day = bday.day, month = bday.month, year = targetYear },
+                warn = false,
+                isBday = true
+            })
+        end
+    end
+
+    if #combinedEvents == 0 then
+        cecho(string.format("\n%s[Pocket Calendar]:%s %sNo upcoming events or monitored birthdays.%s\n", self.colors.main, "<reset>", self.colors.text, "<reset>"))
+        return
+    end
+
+    -- Sort everything (events and birthdays) chronologically
+    table.sort(combinedEvents, function(a, b) return a.realTime < b.realTime end)
+    
+    cecho(string.format("\n%s=======================================================================%s\n", self.colors.main, "<reset>"))
+    cecho(string.format("%s                    U P C O M I N G   E V E N T S                      %s\n", self.colors.main, "<reset>"))
+    cecho(string.format("%s=======================================================================%s\n\n", self.colors.main, "<reset>"))
+    
+    for _, event in ipairs(combinedEvents) do
+        local diff = event.realTime - currentTime
+        local daysLeft = math.floor(diff / 86400)
+        local hoursLeft = math.floor((diff % 86400) / 3600)
+        local minsLeft = math.floor((diff % 3600) / 60)
+        
+        local timeLeftStr = ""
+        if daysLeft > 0 then
+            timeLeftStr = string.format("%dd %dh %dm", daysLeft, hoursLeft, minsLeft)
+        elseif hoursLeft > 0 then
+            timeLeftStr = string.format("%dh %dm", hoursLeft, minsLeft)
+        else
+            timeLeftStr = string.format("%dm", minsLeft)
+        end
+
+        local warnStr = "   "
+        if event.isBday then
+            warnStr = string.format("%s[B]%s", self.colors.accent, "<reset>")
+        elseif event.warn then
+            warnStr = string.format("%s[W]%s", self.colors.warn, "<reset>")
+        end
+
+        cecho(string.format(" %s %s%-22s%s | %sIn %-10s%s | %s%s %d, %d%s\n", 
+            warnStr,
+            self.colors.accent, event.name, "<reset>",
+            self.colors.main, timeLeftStr, "<reset>",
+            self.colors.text, event.achaean.month, event.achaean.day, event.achaean.year, "<reset>"))
+    end
     
     cecho(string.format("\n%s=======================================================================%s\n", self.colors.main, "<reset>"))
 end
@@ -428,7 +472,7 @@ function PocketCalendar:handleCommand(input)
     -- cal bday add <name> <day> <month>
     local bName, bDay, bMonth = input:match("^[Bb][Dd][Aa][Yy] [Aa][Dd][Dd]%s+(%w+)%s+(%d+)%s+(%a+)$")
     if bName then
-        self:addBirthday(bName, bDay, bMonth)
+        self:addBirthday(bName, bDay, bMonth, true) -- TRUE means we deliberately want to monitor this
         return
     end
 
@@ -529,7 +573,7 @@ end
 -- =========================================================================
 
 -- Adds or updates a birthday in the database
-function PocketCalendar:addBirthday(name, day, month)
+function PocketCalendar:addBirthday(name, day, month, autoMonitor)
     name = name:title()
     month = month:title()
     
@@ -540,15 +584,23 @@ function PocketCalendar:addBirthday(name, day, month)
     
     self.birthdays[name] = { day = tonumber(day), month = month }
     
-    -- Auto-monitor if it's manually added
-    if not table.contains(self.monitoredBirthdays, name) then
+    -- Auto-monitor ONLY if the autoMonitor flag is true
+    if autoMonitor and not table.contains(self.monitoredBirthdays, name) then
         table.insert(self.monitoredBirthdays, name)
     end
     
     self:save()
-    cecho(string.format("\n%s[Pocket Calendar]:%s %sSaved %s%s's%s birthday as %s%s %d%s.\n", 
-        self.colors.main, "<reset>", self.colors.text, self.colors.accent, name, self.colors.text,
-        self.colors.accent, month, day, "<reset>"))
+    
+    -- Adjust the feedback message so you know exactly what happened
+    if autoMonitor then
+        cecho(string.format("\n%s[Pocket Calendar]:%s %sSaved and monitored %s%s's%s birthday as %s%s %d%s.\n", 
+            self.colors.main, "<reset>", self.colors.text, self.colors.accent, name, self.colors.text,
+            self.colors.accent, month, day, "<reset>"))
+    else
+        cecho(string.format("\n%s[Pocket Calendar]:%s %sSilently logged %s%s's%s birthday as %s%s %d%s.\n", 
+            self.colors.main, "<reset>", self.colors.text, self.colors.accent, name, self.colors.text,
+            self.colors.accent, month, day, "<reset>"))
+    end
 end
 
 function PocketCalendar:monitorBirthday(name)
@@ -581,28 +633,26 @@ function PocketCalendar:listBirthdays(showAll)
         return
     end
 
-    local currentAbs = self:getAbsAchaeanDay(self.currentDate.day, self.currentDate.month, self.currentDate.year)
+    local currentAbs = self:getAbsAchaeanHour(self.currentDate.hour, self.currentDate.day, self.currentDate.month, self.currentDate.year)
     local sortedList = {}
     local otherCount = 0
 
-    -- Process the watchlist (or everyone, if showAll is true)
     for name, bday in pairs(self.birthdays) do
         local isMonitored = table.contains(self.monitoredBirthdays, name)
         
+        local bdayAbs = self:getAbsAchaeanHour(0, bday.day, bday.month, self.currentDate.year)
+        local achaeanHoursLeft = bdayAbs - currentAbs
+        
+        -- If it already passed this year, it happens next year
+        if achaeanHoursLeft < 0 then achaeanHoursLeft = achaeanHoursLeft + (300 * 24) end
+        
+        local realSecondsLeft = achaeanHoursLeft * 150
+
         if showAll or isMonitored then
-            local bdayAbs = self:getAbsAchaeanDay(bday.day, bday.month, self.currentDate.year)
-            local daysLeft = bdayAbs - currentAbs
-            
-            -- If the birthday passed this year, it happens next year (+300 days)
-            if daysLeft < 0 then daysLeft = daysLeft + 300 end
-            
-            table.insert(sortedList, { name = name, daysLeft = daysLeft, month = bday.month, day = bday.day, monitored = isMonitored })
+            table.insert(sortedList, { name = name, realSecondsLeft = realSecondsLeft, month = bday.month, day = bday.day, monitored = isMonitored })
         elseif not isMonitored then
-            -- Calculate if unmonitored birthdays are within the next 7 real days (168 hours)
-            local bdayAbs = self:getAbsAchaeanDay(bday.day, bday.month, self.currentDate.year)
-            local daysLeft = bdayAbs - currentAbs
-            if daysLeft < 0 then daysLeft = daysLeft + 300 end
-            if daysLeft <= 168 then otherCount = otherCount + 1 end
+            -- Count unmonitored birthdays within the next 7 real days (168 hours)
+            if realSecondsLeft <= (168 * 3600) then otherCount = otherCount + 1 end
         end
     end
 
@@ -611,7 +661,7 @@ function PocketCalendar:listBirthdays(showAll)
         return
     end
 
-    table.sort(sortedList, function(a, b) return a.daysLeft < b.daysLeft end)
+    table.sort(sortedList, function(a, b) return a.realSecondsLeft < b.realSecondsLeft end)
 
     local title = showAll and "A L L   K N O W N   B I R T H D A Y S" or "U P C O M I N G   B I R T H D A Y S"
     cecho(string.format("\n%s=======================================================================%s\n", self.colors.main, "<reset>"))
@@ -619,17 +669,23 @@ function PocketCalendar:listBirthdays(showAll)
     cecho(string.format("%s=======================================================================%s\n\n", self.colors.main, "<reset>"))
 
     for _, person in ipairs(sortedList) do
-        local realDays = math.floor(person.daysLeft / 24)
-        local realHours = person.daysLeft % 24
+        local realDays = math.floor(person.realSecondsLeft / 86400)
+        local realHours = math.floor((person.realSecondsLeft % 86400) / 3600)
+        local realMins = math.floor((person.realSecondsLeft % 3600) / 60)
         
         local timeLeftStr = ""
-        if realDays > 0 then timeLeftStr = string.format("%dd %dh", realDays, realHours)
-        else timeLeftStr = string.format("%dh", realHours) end
+        if realDays > 0 then 
+            timeLeftStr = string.format("%dd %dh %dm", realDays, realHours, realMins)
+        elseif realHours > 0 then 
+            timeLeftStr = string.format("%dh %dm", realHours, realMins) 
+        else
+            timeLeftStr = string.format("%dm", realMins)
+        end
 
         -- Highlight non-monitored ones differently if we are showing all
         local nameColor = person.monitored and self.colors.accent or self.colors.text
 
-        cecho(string.format("   %s%-18s%s | %sIn %-7s%s | %s%s %d%s\n", 
+        cecho(string.format("   %s%-18s%s | %sIn %-10s%s | %s%s %d%s\n", 
             nameColor, person.name, "<reset>",
             self.colors.main, timeLeftStr, "<reset>",
             self.colors.text, person.month, person.day, "<reset>"))
@@ -720,7 +776,9 @@ function PocketCalendar:init()
         if PocketCalendar.currentLookup then
             local bDay = matches[2]
             local bMonth = matches[3]
-            PocketCalendar:addBirthday(PocketCalendar.currentLookup, bDay, bMonth)
+            
+            -- Pass FALSE so background tracking merely learns the date without monitoring it
+            PocketCalendar:addBirthday(PocketCalendar.currentLookup, bDay, bMonth, false)
             PocketCalendar.currentLookup = nil
         end
     end)
