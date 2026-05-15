@@ -5,10 +5,22 @@
 
 PocketCalendar = PocketCalendar or {}
 PocketCalendar.events = PocketCalendar.events or {}
-PocketCalendar.gmtOffset = PocketCalendar.gmtOffset or 0 
-PocketCalendar.currentDate = PocketCalendar.currentDate or { hour = 0, day = 1, month = "Sarapin", year = 0 }
 PocketCalendar.birthdays = PocketCalendar.birthdays or {}
 PocketCalendar.monitoredBirthdays = PocketCalendar.monitoredBirthdays or {}
+PocketCalendar.dateQueue = PocketCalendar.dateQueue or {}
+PocketCalendar.clockDrift = PocketCalendar.clockDrift or 0 
+PocketCalendar.currentDate = PocketCalendar.currentDate or { hour = 0, day = 1, month = "Sarapin", year = 0 }
+
+-- =========================================================================
+-- DEBUG MODE
+-- =========================================================================
+PocketCalendar.debugMode = PocketCalendar.debugMode or false -- Disabled by default
+
+function PocketCalendar:debug(msg)
+    if self.debugMode then
+        cecho(string.format("\n<yellow>[CAL DEBUG]:<reset> %s\n", tostring(msg)))
+    end
+end
 
 -- USER CONFIGURABLE RGB COLORS
 color_table.cal_main = {0, 153, 153}
@@ -36,7 +48,7 @@ PocketCalendar.monthList = {
 }
 
 -- =========================================================================
--- TIME MATHEMATICS
+-- TIME MATHEMATICS & SERVER SYNC
 -- =========================================================================
 
 function PocketCalendar:getAbsAchaeanHour(hour, day, month, year)
@@ -45,119 +57,123 @@ function PocketCalendar:getAbsAchaeanHour(hour, day, month, year)
     return (absDays * 24) + (hour or 0)
 end
 
-function PocketCalendar:absHourToAchaean(absHour)
-    local absDays = math.floor(absHour / 24)
-    local tHour = absHour % 24
+function PocketCalendar:parseLocalToEpoch(y, m, d, h, min, s)
+    self:debug(string.format("Converting Local to Epoch: %d/%d/%d %d:%d:%d", y, m, d, h, min, s))
+    -- Directly trusts the computer's OS time since Achaea is giving us Local Time
+    return os.time({year=y, month=m, day=d, hour=h, min=min, sec=s})
+end
+
+function PocketCalendar:parseGmtToEpoch(y, m, d, h, min, s)
+    self:debug(string.format("Converting GMT to Epoch: %d/%d/%d %d:%d:%d", y, m, d, h, min, s))
     
-    local tYear = math.floor(absDays / 300)
-    local remainder = absDays % 300
-    local tMonthNum = math.floor(remainder / 25) + 1
-    local tDay = (remainder % 25) + 1
+    local t = os.time({year=y, month=m, day=d, hour=h, min=min, sec=s})
+    local l = os.date("*t", t)
+    local u = os.date("!*t", t)
     
-    return { hour = tHour, day = tDay, month = self.monthList[tMonthNum], year = tYear }
+    local offset = (l.hour - u.hour) * 3600 + (l.min - u.min) * 60
+    if l.year > u.year then offset = offset + 86400
+    elseif l.year < u.year then offset = offset - 86400
+    elseif l.yday > u.yday then offset = offset + 86400
+    elseif l.yday < u.yday then offset = offset - 86400 end
+    
+    local finalTime = t + offset
+    self:debug("Calculated True Epoch: " .. finalTime)
+    return finalTime
+end
+
+function PocketCalendar:getServerTime()
+    return os.time() + self.clockDrift
+end
+
+function PocketCalendar:syncServerTime()
+    self:debug("Syncing server time...")
+    self.syncingTime = true
+    send("TIME", false)
 end
 
 -- =========================================================================
--- CONVERSIONS & LOOKUPS
+-- ASYNC ACHAEA SERVER DATE RESOLUTION ENGINE
 -- =========================================================================
 
-function PocketCalendar:AchaeanToReal(targetDay, targetMonth, targetYear, targetHour)
-    if self.currentDate.year == 0 then return nil end
-
-    local currentAbs = self:getAbsAchaeanHour(self.currentDate.hour, self.currentDate.day, self.currentDate.month, self.currentDate.year)
-    local targetAbs = self:getAbsAchaeanHour(targetHour or 0, targetDay, targetMonth, targetYear)
-
-    local diffGameHours = targetAbs - currentAbs
-    local realSecondsDiff = diffGameHours * 150
-
-    return os.time() + realSecondsDiff
+function PocketCalendar:queueDateCmd(cmd, payload)
+    table.insert(self.dateQueue, payload)
+    self:debug("Queueing DATE command: '" .. cmd .. "' | Queue Length: " .. #self.dateQueue)
+    send(cmd, false)
 end
 
-function PocketCalendar:RealToAchaean(targetUnixTime)
-    if self.currentDate.year == 0 then return nil end
-
-    local currentUnix = os.time()
-    local diffSeconds = targetUnixTime - currentUnix
-    local diffGameHours = math.floor(diffSeconds / 150)
-
-    local currentAbs = self:getAbsAchaeanHour(self.currentDate.hour, self.currentDate.day, self.currentDate.month, self.currentDate.year)
-    local targetAbs = currentAbs + diffGameHours
-
-    return self:absHourToAchaean(targetAbs)
+function PocketCalendar:processAchaeaToReal(matches, payload)
+    self:debug("Executing processAchaeaToReal payload action: " .. tostring(payload.action))
+    local aDay, aMonth, aYear = tonumber(matches[1]), matches[2]:title(), tonumber(matches[3])
+    
+    local rMonth, rDay, rYear = tonumber(matches[4]), tonumber(matches[5]), tonumber(matches[6])
+    local rHour = tonumber(matches[7])
+    local rMin = tonumber(matches[8]) or 0
+    
+    local realUnixTime = self:parseGmtToEpoch(rYear, rMonth, rDay, rHour, rMin, 0)
+    
+    if payload.action == "add_event" then
+        self:debug("Adding event to events array: " .. payload.name)
+        table.insert(self.events, {
+            name = payload.name,
+            achaean = {day = aDay, month = aMonth, year = aYear},
+            realTime = realUnixTime,
+            warn = false
+        })
+        cecho(string.format("\n%s[Pocket Calendar]:%s %sAdded event %s'%s'%s for %s%s %d, %d%s.\n", 
+            self.colors.main, "<reset>", self.colors.text, self.colors.accent, payload.name, self.colors.text, 
+            self.colors.accent, aMonth, aDay, aYear, "<reset>"))
+        self:save()
+        
+    elseif payload.action == "lookup" then
+        local diff = realUnixTime - self:getServerTime()
+        if diff < 0 then
+            cecho(string.format("\n%s[Pocket Calendar]:%s %sThat date is in the past!%s\n", self.colors.main, "<reset>", self.colors.warn, "<reset>"))
+            return
+        end
+        local daysLeft = math.floor(diff / 86400)
+        local hoursLeft = math.floor((diff % 86400) / 3600)
+        local minsLeft = math.floor((diff % 3600) / 60)
+        cecho(string.format("\n%s[Pocket Calendar]:%s %s%s %d, %d%s is in %s%dd %dh %dm%s (Local Time: %s%s%s)\n",
+            self.colors.main, "<reset>", self.colors.accent, aMonth, aDay, aYear, self.colors.text,
+            self.colors.accent, daysLeft, hoursLeft, minsLeft, self.colors.text, 
+            self.colors.accent, os.date("%c", realUnixTime - self.clockDrift), "<reset>"))
+    end
 end
 
-function PocketCalendar:lookupRealTimestamp(year, month, day, hour, min, sec, timeType)
-    local uncorrectedUnixTime = os.time({
-        year = tonumber(year), month = tonumber(month), day = tonumber(day), 
-        hour = tonumber(hour), min = tonumber(min), sec = tonumber(sec)
-    })
-    
-    local targetUnixTime = uncorrectedUnixTime
-    if timeType == "gmt" then
-        targetUnixTime = uncorrectedUnixTime + (self.gmtOffset * 3600)
+function PocketCalendar:processRealToAchaea(matches, payload)
+    self:debug("Executing processRealToAchaea payload action: " .. tostring(payload.action))
+
+    local rMonth, rDay, rYear = tonumber(matches[1]), tonumber(matches[2]), tonumber(matches[3])
+    local rHour = tonumber(matches[4])
+    local rMin = tonumber(matches[5]) or 0
+    local aDay, aMonth, aYear = tonumber(matches[6]), matches[7]:title(), tonumber(matches[8])
+
+    if payload.action == "add_event" then
+        self:debug("Adding event to events array: " .. payload.name)
+        table.insert(self.events, {
+            name = payload.name,
+            achaean = {day = aDay, month = aMonth, year = aYear},
+            realTime = payload.targetUnix,
+            warn = false
+        })
+        cecho(string.format("\n%s[Pocket Calendar]:%s %sAdded event %s'%s'%s for %s%s %d, %d%s.\n", 
+            self.colors.main, "<reset>", self.colors.text, self.colors.accent, payload.name, self.colors.text, 
+            self.colors.accent, aMonth, aDay, aYear, "<reset>"))
+        self:save()
+        
+    elseif payload.action == "lookup_relative" then
+        cecho(string.format("\n%s[Pocket Calendar]:%s %sIn %d %s, the Achaean date will be %s%s %d, %d%s (Local Time: %s%s%s)\n",
+            self.colors.main, "<reset>", self.colors.text, payload.amountNum, payload.unit,
+            self.colors.accent, aMonth, aDay, aYear, self.colors.text,
+            self.colors.accent, os.date("%c", payload.targetUnix - self.clockDrift), "<reset>"))
+            
+    elseif payload.action == "lookup_timestamp" then
+        local typeStr = (payload.timeType == "gmt") and "GMT " or "Local "
+        cecho(string.format("\n%s[Pocket Calendar]:%s %sThe %stimestamp %s%04d/%02d/%02d %02d:%02d:%02d%s translates to %s%s %d, %d%s in Achaea.\n",
+            self.colors.main, "<reset>", self.colors.text, typeStr, self.colors.accent, 
+            payload.orig.y, payload.orig.m, payload.orig.d, payload.orig.h, payload.orig.min, payload.orig.s, self.colors.text, self.colors.accent, 
+            aMonth, aDay, aYear, "<reset>"))
     end
-    
-    local achaeanDate = self:RealToAchaean(targetUnixTime)
-    if not achaeanDate then
-        cecho(string.format("\n%s[Pocket Calendar]:%s %sI don't know the current date yet. Type 'DATE'.%s\n", self.colors.main, "<reset>", self.colors.warn, "<reset>"))
-        return
-    end
-
-    local typeStr = (timeType == "gmt") and "GMT " or "Local "
-
-    cecho(string.format("\n%s[Pocket Calendar]:%s %sThe %stimestamp %s%04d/%02d/%02d %02d:%02d:%02d%s translates to %s%s %d, %d%s in Achaea.\n",
-        self.colors.main, "<reset>", self.colors.text, typeStr, self.colors.accent, 
-        year, month, day, hour, min, sec, self.colors.text, self.colors.accent, 
-        achaeanDate.month, achaeanDate.day, achaeanDate.year, "<reset>"))
-end
-
-function PocketCalendar:lookupAchaean(day, month, year)
-    local realUnixTime = self:AchaeanToReal(day, month, year)
-    if not realUnixTime then return end
-    
-    local diff = realUnixTime - os.time()
-    if diff < 0 then
-        cecho(string.format("\n%s[Pocket Calendar]:%s %sThat date is in the past!%s\n", self.colors.main, "<reset>", self.colors.warn, "<reset>"))
-        return
-    end
-    
-    local daysLeft = math.floor(diff / 86400)
-    local hoursLeft = math.floor((diff % 86400) / 3600)
-    local minsLeft = math.floor((diff % 3600) / 60)
-    
-    cecho(string.format("\n%s[Pocket Calendar]:%s %s%s %d, %d%s is in %s%dd %dh %dm%s (Real Time: %s%s%s)\n",
-        self.colors.main, "<reset>", self.colors.accent, month, day, year, self.colors.text,
-        self.colors.accent, daysLeft, hoursLeft, minsLeft, self.colors.text, 
-        self.colors.accent, os.date("%c", realUnixTime), "<reset>"))
-end
-
-function PocketCalendar:lookupReal(amount, unit)
-    local amountNum = tonumber(amount)
-    if not amountNum then return end
-
-    local multiplier = 1
-    unit = unit:lower()
-    if unit:match("hour") then multiplier = 3600
-    elseif unit:match("day") then multiplier = 86400
-    elseif unit:match("week") then multiplier = 604800
-    elseif unit:match("min") then multiplier = 60
-    else
-        cecho(string.format("\n%s[Pocket Calendar]:%s %sInvalid time unit. Use mins, hours, days, or weeks.%s\n", self.colors.main, "<reset>", self.colors.warn, "<reset>"))
-        return
-    end
-
-    local targetUnixTime = os.time() + (amountNum * multiplier)
-    local achaeanDate = self:RealToAchaean(targetUnixTime)
-
-    if not achaeanDate then
-        cecho(string.format("\n%s[Pocket Calendar]:%s %sI don't know the current date yet. Type 'DATE'.%s\n", self.colors.main, "<reset>", self.colors.warn, "<reset>"))
-        return
-    end
-
-    cecho(string.format("\n%s[Pocket Calendar]:%s %sIn %d %s, the Achaean date will be %s%s %d, %d%s (Real Time: %s%s%s)\n",
-        self.colors.main, "<reset>", self.colors.text, amountNum, unit,
-        self.colors.accent, achaeanDate.month, achaeanDate.day, achaeanDate.year, self.colors.text,
-        self.colors.accent, os.date("%c", targetUnixTime), "<reset>"))
 end
 
 -- =========================================================================
@@ -165,26 +181,18 @@ end
 -- =========================================================================
 
 function PocketCalendar:addAchaeanEvent(eventName, day, month, year)
-    local realUnixTime = self:AchaeanToReal(day, month, year)
-    if not realUnixTime then return end
-    
-    table.insert(self.events, {
-        name = eventName,
-        achaean = {day = day, month = month, year = year},
-        realTime = realUnixTime,
-        warn = false
+    self:debug("addAchaeanEvent called for: " .. eventName)
+    self:queueDateCmd(string.format("DATE %d %s %d", day, month, year), {
+        type = "achaea_to_real",
+        action = "add_event",
+        name = eventName
     })
-    
-    cecho(string.format("\n%s[Pocket Calendar]:%s %sAdded event %s'%s'%s for %s%s %d, %d%s.\n", 
-        self.colors.main, "<reset>", self.colors.text, self.colors.accent, eventName, self.colors.text, 
-        self.colors.accent, month, day, year, "<reset>"))
-    self:save()
 end
 
 function PocketCalendar:addRealRelativeEvent(eventName, amount, unit)
+    self:debug("addRealRelativeEvent called for: " .. eventName)
     local amountNum = tonumber(amount)
     if not amountNum then return end
-
     local multiplier = 1
     unit = unit:lower()
     
@@ -197,55 +205,84 @@ function PocketCalendar:addRealRelativeEvent(eventName, amount, unit)
         return
     end
 
-    local targetUnixTime = os.time() + (amountNum * multiplier)
-    local achaeanDate = self:RealToAchaean(targetUnixTime)
-
-    if not achaeanDate then
-        cecho(string.format("\n%s[Pocket Calendar]:%s %sI don't know the current date yet. Type 'DATE'.%s\n", self.colors.main, "<reset>", self.colors.warn, "<reset>"))
-        return
-    end
-
-    table.insert(self.events, {
+    local targetUnixTime = self:getServerTime() + (amountNum * multiplier)
+    local dateStr = os.date("!%m/%d/%Y %H:%M", targetUnixTime)
+    
+    self:queueDateCmd("DATE " .. dateStr, {
+        type = "real_to_achaea",
+        action = "add_event",
         name = eventName,
-        achaean = achaeanDate,
-        realTime = targetUnixTime,
-        warn = false
+        targetUnix = targetUnixTime
     })
-
-    cecho(string.format("\n%s[Pocket Calendar]:%s %sAdded event %s'%s'%s for %s%s %d, %d%s.\n", 
-        self.colors.main, "<reset>", self.colors.text, self.colors.accent, eventName, self.colors.text, 
-        self.colors.accent, achaeanDate.month, achaeanDate.day, achaeanDate.year, "<reset>"))
-    self:save()
 end
 
 function PocketCalendar:addRealTimestampEvent(eventName, year, month, day, hour, min, sec, timeType)
-    local uncorrectedUnixTime = os.time({
-        year = tonumber(year), month = tonumber(month), day = tonumber(day), 
-        hour = tonumber(hour), min = tonumber(min), sec = tonumber(sec)
-    })
-    
-    local targetUnixTime = uncorrectedUnixTime
+    local targetUnixTime
     if timeType == "gmt" then
-        targetUnixTime = uncorrectedUnixTime + (self.gmtOffset * 3600)
+        targetUnixTime = self:parseGmtToEpoch(year, month, day, hour, min, sec)
+    else
+        targetUnixTime = self:parseLocalToEpoch(year, month, day, hour, min, sec)
     end
     
-    local achaeanDate = self:RealToAchaean(targetUnixTime)
-    if not achaeanDate then
-        cecho(string.format("\n%s[Pocket Calendar]:%s %sI don't know the current date yet. Type 'DATE'.%s\n", self.colors.main, "<reset>", self.colors.warn, "<reset>"))
+    local dateStr = os.date("!%m/%d/%Y %H:%M", targetUnixTime)
+    self:queueDateCmd("DATE " .. dateStr, {
+        type = "real_to_achaea",
+        action = "add_event",
+        name = eventName,
+        targetUnix = targetUnixTime
+    })
+end
+
+function PocketCalendar:lookupAchaean(day, month, year)
+    self:queueDateCmd(string.format("DATE %d %s %d", day, month, year), {
+        type = "achaea_to_real",
+        action = "lookup",
+        achaean = {day = day, month = month, year = year}
+    })
+end
+
+function PocketCalendar:lookupReal(amount, unit)
+    local amountNum = tonumber(amount)
+    if not amountNum then return end
+    local multiplier = 1
+    unit = unit:lower()
+    if unit:match("hour") then multiplier = 3600
+    elseif unit:match("day") then multiplier = 86400
+    elseif unit:match("week") then multiplier = 604800
+    elseif unit:match("min") then multiplier = 60
+    else
+        cecho(string.format("\n%s[Pocket Calendar]:%s %sInvalid time unit.%s\n", self.colors.main, "<reset>", self.colors.warn, "<reset>"))
         return
     end
 
-    table.insert(self.events, {
-        name = eventName,
-        achaean = achaeanDate,
-        realTime = targetUnixTime,
-        warn = false
+    local targetUnixTime = self:getServerTime() + (amountNum * multiplier)
+    local dateStr = os.date("!%m/%d/%Y %H:%M", targetUnixTime)
+    
+    self:queueDateCmd("DATE " .. dateStr, {
+        type = "real_to_achaea",
+        action = "lookup_relative",
+        targetUnix = targetUnixTime,
+        amountNum = amountNum,
+        unit = unit
     })
+end
 
-    cecho(string.format("\n%s[Pocket Calendar]:%s %sImported event %s'%s'%s for %s%s %d, %d%s.\n", 
-        self.colors.main, "<reset>", self.colors.text, self.colors.accent, eventName, self.colors.text, 
-        self.colors.accent, achaeanDate.month, achaeanDate.day, achaeanDate.year, "<reset>"))
-    self:save()
+function PocketCalendar:lookupRealTimestamp(year, month, day, hour, min, sec, timeType)
+    local targetUnixTime
+    if timeType == "gmt" then
+        targetUnixTime = self:parseGmtToEpoch(year, month, day, hour, min, sec)
+    else
+        targetUnixTime = self:parseLocalToEpoch(year, month, day, hour, min, sec)
+    end
+    
+    local dateStr = os.date("!%m/%d/%Y %H:%M", targetUnixTime)
+    self:queueDateCmd("DATE " .. dateStr, {
+        type = "real_to_achaea",
+        action = "lookup_timestamp",
+        targetUnix = targetUnixTime,
+        timeType = timeType,
+        orig = {y=year, m=month, d=day, h=hour, min=min, s=sec}
+    })
 end
 
 function PocketCalendar:removeEvent(searchTerm)
@@ -293,10 +330,10 @@ function PocketCalendar:toggleWarning(searchTerm)
 end
 
 function PocketCalendar:checkWarnings()
-    local currentTime = os.time()
+    local currentServerTime = self:getServerTime()
     for _, event in ipairs(self.events) do
-        if event.warn and event.realTime > currentTime then
-            local diff = event.realTime - currentTime
+        if event.warn and event.realTime > currentServerTime then
+            local diff = event.realTime - currentServerTime
             
             if diff <= 3600 then
                 local minsLeft = math.floor(diff / 60)
@@ -307,33 +344,24 @@ function PocketCalendar:checkWarnings()
     end
 end
 
-function PocketCalendar:setTimezone(offset)
-    local numOffset = tonumber(offset)
-    if not numOffset then return end
-    
-    self.gmtOffset = numOffset
-    self:save()
-    
-    cecho(string.format("\n%s[Pocket Calendar]:%s %sGMT Offset set to %s%s%s hours.\n", 
-        self.colors.main, "<reset>", self.colors.text, self.colors.accent, numOffset, "<reset>"))
-end
-
 -- =========================================================================
 -- DISPLAY & HELP
 -- =========================================================================
 
 function PocketCalendar:listEvents()
     if self.currentDate.year == 0 then
-        cecho(string.format("\n%s[Pocket Calendar]:%s %sI don't know the current Achaean date yet. Type 'DATE'.%s\n", self.colors.main, "<reset>", self.colors.warn, "<reset>"))
+        cecho(string.format("\n%s[Pocket Calendar]:%s %sI don't know the current Achaean date yet. Gathering now...%s\n", self.colors.main, "<reset>", self.colors.warn, "<reset>"))
+        self:syncServerTime()
+        tempTimer(1, function() self:listEvents() end)
         return
     end
 
-    local currentTime = os.time()
+    local currentServerTime = self:getServerTime()
     local validEvents = {}
     local combinedEvents = {}
     
     for _, event in ipairs(self.events) do
-        if event.realTime > currentTime then
+        if event.realTime > currentServerTime then
             table.insert(validEvents, event)
             table.insert(combinedEvents, event)
         end
@@ -359,7 +387,7 @@ function PocketCalendar:listEvents()
             
             table.insert(combinedEvents, {
                 name = name .. "'s Birthday",
-                realTime = currentTime + realSecondsLeft,
+                realTime = currentServerTime + realSecondsLeft,
                 achaean = { day = bday.day, month = bday.month, year = targetYear },
                 warn = false,
                 isBday = true
@@ -379,7 +407,7 @@ function PocketCalendar:listEvents()
     cecho(string.format("%s=======================================================================%s\n\n", self.colors.main, "<reset>"))
     
     for _, event in ipairs(combinedEvents) do
-        local diff = event.realTime - currentTime
+        local diff = event.realTime - currentServerTime
         local daysLeft = math.floor(diff / 86400)
         local hoursLeft = math.floor((diff % 86400) / 3600)
         local minsLeft = math.floor((diff % 3600) / 60)
@@ -422,7 +450,7 @@ function PocketCalendar:help()
     cecho(string.format("%s=======================================================================%s\n", m, r))
     
     cecho(string.format("\n%sPocket Calendar manages events and seamlessly converts Achaean in-game\n", t))
-    cecho(string.format("dates to real-world time. Ensure you've typed DATE once this session!%s\n\n", r))
+    cecho(string.format("dates to server-synced Real-World GMT automatically.%s\n\n", r))
 
     cecho(string.format("%sAdding Events:%s\n", m, r))
     cecho(string.format("  %scal add achaea <name> <day> <month> <year>%s\n", a, r))
@@ -447,8 +475,8 @@ function PocketCalendar:help()
     cecho(string.format("  %scal warn <name>%s      - Toggles 1-hour countdown warnings.\n\n", a, r))
 
     cecho(string.format("%sSystem Setup:%s\n", m, r))
-    cecho(string.format("  %scal timezone <#>%s     - Sets your local hour offset from GMT.\n", a, r))
-    cecho(string.format("  %sDATE%s                 - (Game Command) Syncs your current Achaean date.\n", a, r))
+    cecho(string.format("  %scal sync%s             - Manually resync clock with Achaea server.\n", a, r))
+    cecho(string.format("  %scal debug%s            - Toggles developer debug messages.\n", a, r))
     cecho(string.format("%s=======================================================================%s\n", m, r))
 end
 
@@ -457,7 +485,10 @@ end
 -- =========================================================================
 
 function PocketCalendar:handleCommand(input)
+    self:debug("Dispatcher received input: '" .. tostring(input) .. "'")
+
     if not input or input == "" or input:lower() == "list" then
+        self:debug("Routing to listEvents()")
         self:listEvents()
         return
     end
@@ -466,15 +497,30 @@ function PocketCalendar:handleCommand(input)
         self:help()
         return
     end
+    
+    if input:lower() == "sync" then
+        self:syncServerTime()
+        return
+    end
+    
+    if input:lower() == "debug" then
+        self.debugMode = not self.debugMode
+        cecho(string.format("\n%s[Pocket Calendar]:%s %sDebug mode is now %s%s%s.\n", 
+            self.colors.main, "<reset>", self.colors.text, 
+            self.colors.accent, self.debugMode and "ON" or "OFF", "<reset>"))
+        return
+    end
 
     local aName, aDay, aMonth, aYear = input:match("^[Aa][Dd][Dd] [Aa][Cc][Hh][Aa][Ee][Aa]%s+(.+)%s+(%d+)%s+(%a+)%s+(%d+)$")
     if aName then
+        self:debug("Matched Add Achaea: Name="..aName.." Date="..aDay.." "..aMonth.." "..aYear)
         self:addAchaeanEvent(aName, tonumber(aDay), aMonth:title(), tonumber(aYear))
         return
     end
 
     local rName, rAmt, rUnit = input:match("^[Aa][Dd][Dd] [Rr][Ee][Aa][Ll]%s+(.+)%s+in%s+(%d+)%s+(%a+)$")
     if rName then
+        self:debug("Matched Add Real Relative: Name="..rName.." Amt="..rAmt.." Unit="..rUnit)
         self:addRealRelativeEvent(rName, tonumber(rAmt), rUnit)
         return
     end
@@ -555,58 +601,15 @@ function PocketCalendar:handleCommand(input)
         return
     end
 
-    local tzOffset = input:match("^[Tt][Ii][Mm][Ee][Zz][Oo][Nn][Ee]%s+([%+%-%d%.]+)$")
-    if tzOffset then
-        self:setTimezone(tzOffset)
-        return
-    end
-
     local warnName = input:match("^[Ww][Aa][Rr][Nn]%s+(.+)$")
     if warnName then
         self:toggleWarning(warnName)
         return
     end
 
+    self:debug("No regex match found in dispatcher. Outputting syntax warning.")
     cecho(string.format("\n%s[Pocket Calendar]:%s %sCommand syntax not recognized. Type %scal help%s %sfor options.%s\n", 
         self.colors.main, "<reset>", self.colors.warn, self.colors.accent, "<reset>", self.colors.warn, "<reset>"))
-end
-
--- =========================================================================
--- GMCP SYNC & SAVING
--- =========================================================================
-
-function PocketCalendar:onStatusChange()
-    if not gmcp or not gmcp.Char or not gmcp.Char.Status then return end
-    if gmcp.Char.Status.day then
-        self.currentDate.day = tonumber(gmcp.Char.Status.day)
-        self.currentDate.month = gmcp.Char.Status.month
-        self.currentDate.year = tonumber(gmcp.Char.Status.year)
-    end
-end
-
-if PocketCalendar.eventHandlerID then killAnonymousEventHandler(PocketCalendar.eventHandlerID) end
-PocketCalendar.eventHandlerID = registerAnonymousEventHandler("gmcp.Char.Status", "PocketCalendar:onStatusChange")
-
-function PocketCalendar:save()
-    local path = getMudletHomeDir() .. "/pocketcalendar_data.lua"
-    table.save(path, {
-        events = self.events, 
-        gmtOffset = self.gmtOffset,
-        birthdays = self.birthdays,
-        monitoredBirthdays = self.monitoredBirthdays
-    })
-end
-
-function PocketCalendar:load()
-    local path = getMudletHomeDir() .. "/pocketcalendar_data.lua"
-    if io.exists(path) then
-        local content = {}
-        table.load(path, content)
-        self.events = content.events or {}
-        self.gmtOffset = content.gmtOffset or 0
-        self.birthdays = content.birthdays or {}
-        self.monitoredBirthdays = content.monitoredBirthdays or {}
-    end
 end
 
 -- =========================================================================
@@ -675,7 +678,9 @@ end
 
 function PocketCalendar:listBirthdays(showAll)
     if self.currentDate.year == 0 then
-        cecho(string.format("\n%s[Pocket Calendar]:%s %sI don't know the current date yet. Type 'DATE'.%s\n", self.colors.main, "<reset>", self.colors.warn, "<reset>"))
+        cecho(string.format("\n%s[Pocket Calendar]:%s %sI don't know the current date yet. Gathering now...%s\n", self.colors.main, "<reset>", self.colors.warn, "<reset>"))
+        self:syncServerTime()
+        tempTimer(1, function() self:listBirthdays(showAll) end)
         return
     end
 
@@ -742,11 +747,45 @@ function PocketCalendar:listBirthdays(showAll)
     end
 end
 
-PocketCalendar:load()
+-- =========================================================================
+-- GMCP SYNC & SAVING
+-- =========================================================================
 
--- =========================================================================
--- GMCP TIME SYNC
--- =========================================================================
+function PocketCalendar:onStatusChange()
+    if not gmcp or not gmcp.Char or not gmcp.Char.Status then return end
+    if gmcp.Char.Status.day then
+        self.currentDate.day = tonumber(gmcp.Char.Status.day)
+        self.currentDate.month = gmcp.Char.Status.month
+        self.currentDate.year = tonumber(gmcp.Char.Status.year)
+    end
+end
+
+if PocketCalendar.eventHandlerID then killAnonymousEventHandler(PocketCalendar.eventHandlerID) end
+PocketCalendar.eventHandlerID = registerAnonymousEventHandler("gmcp.Char.Status", "PocketCalendar:onStatusChange")
+
+function PocketCalendar:save()
+    local path = getMudletHomeDir() .. "/pocketcalendar_data.lua"
+    table.save(path, {
+        events = self.events, birthdays = self.birthdays,
+        monitoredBirthdays = self.monitoredBirthdays, clockDrift = self.clockDrift
+    })
+    self:debug("Data saved to disk.")
+end
+
+function PocketCalendar:load()
+    local path = getMudletHomeDir() .. "/pocketcalendar_data.lua"
+    if io.exists(path) then
+        local content = {}
+        table.load(path, content)
+        self.events = content.events or {}
+        self.birthdays = content.birthdays or {}
+        self.monitoredBirthdays = content.monitoredBirthdays or {}
+        self.clockDrift = content.clockDrift or 0
+        self:debug("Data loaded from disk. Events count: " .. #self.events)
+    end
+end
+
+PocketCalendar:load()
 
 function PocketCalendar:onTimeChange(event)
     local timeData = nil
@@ -759,7 +798,6 @@ function PocketCalendar:onTimeChange(event)
     if not timeData then return end
     
     local updated = false
-    
     if timeData.hour then
         self.currentDate.hour = tonumber(timeData.hour)
         updated = true
@@ -777,9 +815,7 @@ function PocketCalendar:onTimeChange(event)
         updated = true
     end
     
-    if updated then
-        self:save()
-    end
+    if updated then self:save() end
 end
 
 -- =========================================================================
@@ -787,10 +823,19 @@ end
 -- =========================================================================
 
 function PocketCalendar:init()
+    self:debug("Initializing PocketCalendar...")
+    
+    -- FORCE QUEUE WIPE ON INITIALIZATION
+    self.dateQueue = {}
+    self:debug("Event Queue wiped clean.")
+    
     if self.calAlias then killAlias(self.calAlias) end
     if self.honoursAlias then killAlias(self.honoursAlias) end
     if self.birthdayTrigger then killTrigger(self.birthdayTrigger) end
-    if self.dateTrigger then killTrigger(self.dateTrigger) end
+    if self.achaeaDateTrigger then killTrigger(self.achaeaDateTrigger) end
+    if self.realDateTrigger then killTrigger(self.realDateTrigger) end
+    if self.timeSyncTrigger then killTrigger(self.timeSyncTrigger) end
+    if self.achaeaTimeSyncTrigger then killTrigger(self.achaeaTimeSyncTrigger) end
     if self.upcomingTrigger then killTrigger(self.upcomingTrigger) end
     if self.timeListHandler then killAnonymousEventHandler(self.timeListHandler) end
     if self.timeUpdateHandler then killAnonymousEventHandler(self.timeUpdateHandler) end
@@ -814,24 +859,94 @@ function PocketCalendar:init()
         end
     end)
 
-    self.dateTrigger = tempRegexTrigger("^Today is the (\\d+)(?:st|nd|rd|th) of (\\w+), (\\d+) years after", function()
-        PocketCalendar.currentDate.day = tonumber(matches[2])
-        PocketCalendar.currentDate.month = matches[3]
-        PocketCalendar.currentDate.year = tonumber(matches[4])
-        PocketCalendar:save()
-        cecho(string.format("\n%s[Pocket Calendar]:%s %sDate synchronized! It is now %s%s %d, %d%s.\n", 
-            PocketCalendar.colors.main, "<reset>", PocketCalendar.colors.text, 
-            PocketCalendar.colors.accent, PocketCalendar.currentDate.month, PocketCalendar.currentDate.day, PocketCalendar.currentDate.year, "<reset>"))
+    -- Updated Trigger: Matches configured timezone string explicitly
+    self.timeSyncTrigger = tempRegexTrigger([[In your world, it is \d+/\d+/\d+ \d+:\d+:\d+ GMT and (\d+)/(\d+)/(\d+) (\d+):(\d+):(\d+) in your configured timezone]], function()
+        if PocketCalendar.syncingTime then
+            deleteLine()
+            PocketCalendar.syncingTime = false
+            
+            local sYear, sMonth, sDay = tonumber(matches[2]), tonumber(matches[3]), tonumber(matches[4])
+            local sHour, sMin, sSec = tonumber(matches[5]), tonumber(matches[6]), tonumber(matches[7])
+            
+            local serverEpoch = PocketCalendar:parseLocalToEpoch(sYear, sMonth, sDay, sHour, sMin, sSec)
+            PocketCalendar.clockDrift = serverEpoch - os.time()
+            PocketCalendar:save()
+            cecho(string.format("\n%s[Pocket Calendar]:%s %sClock successfully synchronized with Achaea's local time.%s\n", PocketCalendar.colors.main, "<reset>", PocketCalendar.colors.text, "<reset>"))
+        end
     end)
 
-    self.upcomingTrigger = tempRegexTrigger([[GMT Time:[^0-9]*(\d+)/(\d+)/(\d+)[^0-9]*(\d+):(\d+):(\d+)]], function()
+    self.achaeaTimeSyncTrigger = tempRegexTrigger([[Today is the (\d+)(?:st|nd|rd|th)? of ([a-zA-Z]+), (\d+) years after]], function()
+        if PocketCalendar.syncingTime then
+            deleteLine()
+            PocketCalendar.currentDate.day = tonumber(matches[2])
+            PocketCalendar.currentDate.month = matches[3]
+            PocketCalendar.currentDate.year = tonumber(matches[4])
+        end
+    end)
+
+    -- Reverted to match UPCOMING INFO's explicit GMT output
+    self.upcomingTrigger = tempRegexTrigger([[GMT Time:.*?(\d+)/(\d+)/(\d+).*?(\d+):(\d+):(\d+)]], function()
         if PocketCalendar.awaitingUpcoming then
             PocketCalendar.awaitingUpcoming = false
             local eventName = PocketCalendar.tempUpcomingTitle or "Unknown Event"
             eventName = string.gsub(eventName, "^[%s\128-\255]*(.-)[%s\128-\255]*$", "%1") 
-            local tYear, tMonth, tDay = matches[2], matches[3], matches[4]
-            local tHour, tMin, tSec = matches[5], matches[6], matches[7]
+            local tYear, tMonth, tDay = tonumber(matches[2]), tonumber(matches[3]), tonumber(matches[4])
+            local tHour, tMin, tSec = tonumber(matches[5]), tonumber(matches[6]), tonumber(matches[7])
+            PocketCalendar:debug("UPCOMING Trigger fired! Event: " .. eventName)
+            -- Achaea's UPCOMING info uses GMT, so we flag it as 'gmt' here
             PocketCalendar:addRealTimestampEvent(eventName, tYear, tMonth, tDay, tHour, tMin, tSec, "gmt")
+        end
+    end)
+
+    -- Matches: Achaean date 5 Glacian, year 1004 at midnight would be 5/15/2026 at 23:00
+    self.achaeaDateTrigger = tempRegexTrigger([[(?i)^Achaean date\s+(\d+)\s+([A-Za-z]+),\s+year\s+(\d+).*?would be\s+(\d+)/(\d+)/(\d+)\s+(?:at\s+)?(\d+):(\d+)]], function()
+        PocketCalendar:debug("ACHAEA DATE TRIGGER FIRED! Match 1: " .. tostring(matches[1]))
+        
+        local targetIdx = nil
+        for i, payload in ipairs(PocketCalendar.dateQueue) do
+            if payload.type == "achaea_to_real" then
+                targetIdx = i
+                break
+            end
+        end
+        
+        if targetIdx then
+            PocketCalendar:debug("Queue match found! Removing payload from queue index: " .. targetIdx)
+            deleteLine() 
+            local payload = table.remove(PocketCalendar.dateQueue, targetIdx)
+            
+            -- passMatches: aDay, aMonth, aYear, rMonth, rDay, rYear, rHour, rMin
+            local passMatches = {matches[2], matches[3], matches[4], matches[5], matches[6], matches[7], matches[8], matches[9]}
+            PocketCalendar:debug("Passing match data: " .. table.concat(passMatches, " | "))
+            PocketCalendar:processAchaeaToReal(passMatches, payload)
+        else
+            PocketCalendar:debug("Trigger fired, but no matching payload type found in queue.")
+        end
+    end)
+
+    -- Matches: Real world 05/15/2026 at 23:30 hours would be 5th of Glacian, year 1004
+    self.realDateTrigger = tempRegexTrigger([[(?i)^Real world\s+(\d+)/(\d+)/(\d+)\s+(?:at\s+)?(\d+):(\d+).*?would be\s+(\d+)(?:st|nd|rd|th)?(?:\s+of)?\s+([A-Za-z]+),\s+year\s+(\d+)]], function()
+        PocketCalendar:debug("REAL DATE TRIGGER FIRED! Match 1: " .. tostring(matches[1]))
+        
+        local targetIdx = nil
+        for i, payload in ipairs(PocketCalendar.dateQueue) do
+            if payload.type == "real_to_achaea" then
+                targetIdx = i
+                break
+            end
+        end
+        
+        if targetIdx then
+            PocketCalendar:debug("Queue match found! Removing payload from queue index: " .. targetIdx)
+            deleteLine() 
+            local payload = table.remove(PocketCalendar.dateQueue, targetIdx)
+            
+            -- passMatches: rMonth, rDay, rYear, rHour, rMin, aDay, aMonth, aYear
+            local passMatches = {matches[2], matches[3], matches[4], matches[5], matches[6], matches[7], matches[8], matches[9]}
+            PocketCalendar:debug("Passing match data: " .. table.concat(passMatches, " | "))
+            PocketCalendar:processRealToAchaea(passMatches, payload)
+        else
+            PocketCalendar:debug("Trigger fired, but no matching payload type found in queue.")
         end
     end)
 
@@ -839,9 +954,9 @@ function PocketCalendar:init()
     self.timeUpdateHandler = registerAnonymousEventHandler("gmcp.IRE.Time.Update", "PocketCalendar:onTimeChange")
     
     sendGMCP([[Core.Supports.Add ["IRE.Time 1"] ]])
-
-    cecho(string.format("\n%s[Pocket Calendar]:%s %sFully Initialized. Type %scal help%s %sfor options.%s\n", 
-        self.colors.main, "<reset>", self.colors.text, self.colors.accent, self.colors.text, self.colors.text, "<reset>"))
+    
+    self:syncServerTime()
+    self:debug("Initialization Complete.")
 end
 
 PocketCalendar:init()
