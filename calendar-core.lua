@@ -402,9 +402,19 @@ function PocketCalendar:listEvents()
 
     table.sort(combinedEvents, function(a, b) return a.realTime < b.realTime end)
     
+    -- FORMAT THE HEADER
+    local cDay = self.currentDate.day
+    local cMonth = self.currentDate.month
+    local cYear = self.currentDate.year
+    -- Get local formatted time (adjusted by drift)
+    local cLocalTime = os.date("%A, %B %d, %Y at %I:%M %p", currentServerTime - self.clockDrift)
+
     cecho(string.format("\n%s=======================================================================%s\n", self.colors.main, "<reset>"))
     cecho(string.format("%s                    U P C O M I N G   E V E N T S                      %s\n", self.colors.main, "<reset>"))
-    cecho(string.format("%s=======================================================================%s\n\n", self.colors.main, "<reset>"))
+    cecho(string.format("%s=======================================================================%s\n", self.colors.main, "<reset>"))
+    cecho(string.format(" %sCurrent Achaean Date:%s %s%s %d, %d%s\n", self.colors.text, "<reset>", self.colors.accent, cMonth, cDay, cYear, "<reset>"))
+    cecho(string.format(" %sCurrent Local Time:%s   %s%s%s\n", self.colors.text, "<reset>", self.colors.accent, cLocalTime, "<reset>"))
+    cecho(string.format("%s-----------------------------------------------------------------------%s\n\n", self.colors.main, "<reset>"))
     
     for _, event in ipairs(combinedEvents) do
         local diff = event.realTime - currentServerTime
@@ -835,7 +845,6 @@ function PocketCalendar:init()
     if self.achaeaDateTrigger then killTrigger(self.achaeaDateTrigger) end
     if self.realDateTrigger then killTrigger(self.realDateTrigger) end
     if self.timeSyncTrigger then killTrigger(self.timeSyncTrigger) end
-    if self.achaeaTimeSyncTrigger then killTrigger(self.achaeaTimeSyncTrigger) end
     if self.upcomingTrigger then killTrigger(self.upcomingTrigger) end
     if self.timeListHandler then killAnonymousEventHandler(self.timeListHandler) end
     if self.timeUpdateHandler then killAnonymousEventHandler(self.timeUpdateHandler) end
@@ -872,15 +881,6 @@ function PocketCalendar:init()
             PocketCalendar.clockDrift = serverEpoch - os.time()
             PocketCalendar:save()
             cecho(string.format("\n%s[Pocket Calendar]:%s %sClock successfully synchronized with Achaea's local time.%s\n", PocketCalendar.colors.main, "<reset>", PocketCalendar.colors.text, "<reset>"))
-        end
-    end)
-
-    self.achaeaTimeSyncTrigger = tempRegexTrigger([[Today is the (\d+)(?:st|nd|rd|th)? of ([a-zA-Z]+), (\d+) years after]], function()
-        if PocketCalendar.syncingTime then
-            deleteLine()
-            PocketCalendar.currentDate.day = tonumber(matches[2])
-            PocketCalendar.currentDate.month = matches[3]
-            PocketCalendar.currentDate.year = tonumber(matches[4])
         end
     end)
 
